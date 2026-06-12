@@ -1,7 +1,8 @@
-# Finding: Context Load Replaces Context Reconstruction
-## A Measured Observation from Session 95ec77f0 -- June 11 2026
+# Preliminary Finding: Context Load Replaces Context Reconstruction
+## A Single-Session Observation and a Testable Hypothesis -- Session 95ec77f0, June 11 2026
 
-**Classification:** Behavioral finding / Token efficiency  
+**Classification:** Preliminary behavioral observation (n=1) / Token-efficiency hypothesis pending controlled validation  
+**What was measured:** Nothing was instrumented. The observation is a credible human report of latency and behavior change, with the session transcript preserved. Token counts below are estimates, not measurements.  
 **Observed by:** Jeff Phillips  
 **Session:** QuietFireAI / DispatcherAgents development session, June 11 2026  
 **Conversation ID:** 95ec77f0-1e95-41c8-9bcf-650420c8adb7  
@@ -65,7 +66,7 @@ User message received
 - **Thinking tokens** are generated tokens -- they cost compute and latency
 - **Input tokens** (reading the file) cost far less per token and have no generation latency
 
-**Estimated orientation overhead reduction: 40-70% per turn in sessions > 20 turns.**
+**Hypothesized orientation overhead reduction: 40-70% per turn in sessions > 20 turns.** This range is an inference from the observed latency change, not a token count. It is the prediction the validation protocol below exists to test.
 
 This is not total token savings. It is orientation-phase savings -- the tokens that would have gone to "where am I" rather than "what am I doing." In a 50-turn session, this compounds significantly.
 
@@ -122,10 +123,10 @@ An agent that orients from a file behaves predictably. An agent that orients fro
 - The structured transcript is the cache key. The last N thinking steps are the cache value.
 - Cache hit = immediate execution. Cache miss = full reconstruction.
 
-### For cost modeling:
-- Sessions with before-turn active should be modeled with reduced per-turn thinking costs
-- The crossover point (where anchor file read cost exceeds reconstruction savings) appears to be > 50 turns based on observed behavior
-- For most production agent sessions (10-100 turns), before-turn is net-negative cost
+### For cost modeling (conditional on validation):
+- If the finding replicates, sessions with before-turn active should be modeled with reduced per-turn thinking costs
+- The crossover point (where anchor file read cost exceeds reconstruction savings) is unknown; the single observed session suggests it was not reached by turn ~100
+- The claim that before-turn is net-negative cost for typical production sessions (10-100 turns) is the hypothesis under test, not an established result
 
 ### For system architecture:
 - The observation suggests that **structured session state is a compute optimization**, not just a memory aid
@@ -152,12 +153,31 @@ That experiment is the next step.
 
 ---
 
+## Validation Protocol (Preregistered Design)
+
+This section is written before the experiment is run, so the prediction cannot be quietly revised after the data arrives.
+
+**Hypothesis (H1):** In multi-turn agent sessions, turns that begin by reading a structured anchor file (before-turn active) consume fewer thinking tokens in the orientation phase than turns that begin cold, with the difference growing as session length increases.
+
+**Null (H0):** Anchored and cold turns show no significant difference in per-turn thinking-token consumption, or anchored turns cost more.
+
+**Design:**
+1. **Task battery.** 3 scripted multi-turn task sequences (coding, document analysis, multi-step planning), 50 turns each, with deterministic user-side inputs so both arms receive identical turn-by-turn prompts.
+2. **Arms.** A: before-turn active (anchor file read injected before every turn). B: identical loop, no anchor read. Same model, same temperature, same system prompt otherwise.
+3. **Instrumentation.** Thinking-token counts taken from the API's usage fields per turn -- not estimated from latency, not eyeballed. Wall-clock time-to-first-token recorded as a secondary measure.
+4. **Replication.** Minimum 5 sessions per arm per task (30 sessions total) to capture run-to-run variance.
+5. **Primary metric.** Mean thinking tokens per turn, plotted against turn number, per arm.
+6. **Prediction.** Arm A's thinking-token curve falls below Arm B's after turn ~20, with a per-turn reduction in the orientation phase consistent with the 40-70% hypothesized range. 
+7. **Falsification.** If Arm A is not significantly below Arm B after turn 20 across the battery, the Hidden Efficiency claim is withdrawn from all READMEs and this document is amended -- not deleted -- to record the negative result.
+8. **Confounds to control.** Anchor-file read tokens must be counted against Arm A (the claim is net savings, not gross). Model version pinned. Caching effects on the provider side documented if detectable.
+
+**Status: not yet run.** Until it is, every reference to this finding in the stack carries the n=1 label.
+
 ## Proposed Next Steps
 
-1. **Document in before-turn README** under "The Hidden Efficiency" section
-2. **Design A/B experiment** -- same agent task, 50 turns, with/without before-turn, measure thinking tokens
-3. **Add to DispatcherAgents manifesto** as secondary value claim (primary: governance; secondary: efficiency)
-4. **Publish as standalone finding** -- this finding is of general interest to any practitioner running multi-turn agent sessions
+1. Run the validation protocol above. **This is the highest-priority open item in the stack.**
+2. If validated: publish as a standalone finding with the raw per-turn token data attached.
+3. If falsified: amend this document with the negative result and strip the claim from the READMEs. A governance stack that buries its own negative results refutes itself.
 
 ---
 
