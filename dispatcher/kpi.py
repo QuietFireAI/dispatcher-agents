@@ -96,12 +96,34 @@ def compute_kpis(events: list[dict]) -> dict:
         escalation_transport = {"computable": False,
                                 "missing": ["escalation.raised/human.notified pairs"]}
 
-    not_computable = {
-        "playbook_completion": {"computable": False,
-                                "missing": ["playbook.step", "playbook.proof"]},
-        "heartbeat_uptime": {"computable": False,
-                             "missing": ["external watchdog observations"]},
-    }
+    started = by_kind["playbook.started"]
+    completed = by_kind["playbook.completed"]
+    if started:
+        done_ids = {e.get("run_id") for e in completed}
+        playbook_completion = {
+            "computable": True, "started": len(started),
+            "completed": len(completed),
+            "rate": len([e for e in started if e.get("run_id") in done_ids])
+                    / len(started),
+            "incomplete_runs": [e.get("run_id") for e in started
+                                if e.get("run_id") not in done_ids]}
+    else:
+        playbook_completion = {"computable": False,
+                               "missing": ["playbook.started/completed"]}
+
+    beats = sorted(e["ts"] for e in by_kind["heartbeat"])
+    if len(beats) >= 2:
+        gaps = [b - a for a, b in zip(beats, beats[1:])]
+        heartbeat_obs = {"computable": True, "beats": len(beats),
+                         "span_s": beats[-1] - beats[0],
+                         "max_gap_s": max(gaps)}
+        # NOTE: gap INCIDENTS need an expected cadence — that lives with the
+        # external Watchdog (dispatcher.runs), which owns the threshold.
+    else:
+        heartbeat_obs = {"computable": False,
+                         "missing": ["at least 2 heartbeat events"]}
+
+    not_computable = {}
 
     return {
         "ack_integrity": ack_integrity,
@@ -118,6 +140,8 @@ def compute_kpis(events: list[dict]) -> dict:
         "rejects": len(by_kind["reject"]),
         "queue_health": queue_health,
         "escalation_transport_time": escalation_transport,
+        "playbook_completion": playbook_completion,
+        "heartbeat": heartbeat_obs,
         "drift": {
             "hub_reflections_analyzed": len(by_kind["openmind.drift"]),
             "hub_reflections_flagged": sum(1 for e in by_kind["openmind.drift"]

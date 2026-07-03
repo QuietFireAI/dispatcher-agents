@@ -72,3 +72,12 @@ backstop named PROVISIONAL); Ed25519 authority tier (verifier cannot forge)
 + signable boot manifest registering MANNERS.md hash per its own spec.
 `cryptography` is the package's ONLY dependency and only for Ed25519 —
 HMAC deployments stay zero-dep. Every claim: tests/test_day3.py.
+Day 6 (spokes.py, runs.py, territory.py): REAL spokes — deterministic
+work, self-submitted thought traces, reactive chaining (driver injects 2
+signals, spokes do the rest; Spoke03 is the labeled dark-trace exhibit);
+heartbeat watchdog (observer names gap incidents, no invented uptime %);
+playbook started/step/completed events -> completion KPI with incomplete
+runs NAMED; territories implemented per §100-110 — signed transfer,
+fail-closed verify, persist-before-adopt, sequence continues gapless
+across hubs, release only on receiver ack. Nothing in DISPATCHER_CORE
+remains unimplemented except conduct-efficacy testing, which is empirical.

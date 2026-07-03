@@ -210,7 +210,8 @@ def test_p11_demo_end_to_end(tmp_path, monkeypatch):
     import run_p11_demo
     path, steps, notified = run_p11_demo.run(outdir=str(tmp_path / "aa"))
     report = open(path).read()
-    assert all(s["status"] == "ack" for s in steps)
+    assert len(steps) >= 10                         # driver injected only 2;
+    #                                       the swarm chained the rest itself
     assert len(notified) == 1                       # HOT lead reached a human
     for section in ("## run", "## outcome", "## steps", "## gates",
                     "## deviations", "## escalations", "## errors",
@@ -300,3 +301,100 @@ def test_signed_boot_manifest_with_manners_hash(tmp_path):
     v = Ed25519Verifier(signer.public_key_bytes())
     assert v.verify_bytes(_json.dumps(m, sort_keys=True).encode(),
                           ev["manifest_signature"])
+
+
+# ---------------------------------------------- Day 6: real spokes, chain demo
+def test_real_spokes_chain_hot_and_warm_from_single_signals(tmp_path):
+    from dispatcher.spokes import (Spoke01LeadCapture, Spoke02Qualification,
+                                   Spoke03Nurture, Spoke14CRM)
+    from dispatcher.analysis import score_spoke_traces
+    notified = []
+    hub = Hub(Routes(FIX), AuditLog(str(tmp_path / "a.jsonl")),
+              human_notifier=lambda q, r: notified.append(q))
+    crm, cap = Spoke14CRM(hub), Spoke01LeadCapture(hub)
+    qual, nur = Spoke02Qualification(hub), Spoke03Nurture(hub)
+    # single injected signal per lead — spokes chain the rest themselves
+    hub.send(env(frm="20", to="01", intent="lead.signal", ctx="lead-w",
+                 payload={"consent": "recorded", "email": "w@x.com",
+                          "budget": 550_000, "timeline_days": 90,
+                          "channel": "social"}))          # 40 -> WARM
+    hub.send(env(frm="20", to="01", intent="lead.signal", ctx="lead-h",
+                 payload={"consent": "recorded", "email": "h@x.com",
+                          "budget": 900_000, "timeline_days": 14,
+                          "channel": "call"}))            # 100 -> HOT
+    assert nur.enrolled == ["lead-w"]                     # WARM chained to drip
+    assert notified == ["escalation.hot_lead"]            # HOT reached a human
+    assert len(crm.interactions) == 2                     # both logged
+    scored = score_spoke_traces(hub)
+    assert sum(1 for t in scored if t.get("tainted")) == 1   # 03's dark trace
+    assert sum(1 for t in scored if not t.get("tainted")) >= 6  # real thoughts
+
+
+def test_consent_gate_holds_without_recorded_consent(tmp_path):
+    from dispatcher.spokes import Spoke01LeadCapture, Spoke14CRM
+    hub = make_hub(tmp_path)
+    Spoke14CRM(hub); cap = Spoke01LeadCapture(hub)
+    hub.send(env(frm="20", to="01", intent="lead.signal", ctx="lead-x",
+                 payload={"consent": "unknown", "email": "x@x.com"}))
+    assert cap.pending == {}                              # never advanced
+    traces = hub.spoke_traces
+    assert any("TCPA" in t["thought"] for t in traces)    # reasoning on log
+
+
+# ----------------------------------------------------- heartbeat + playbook KPI
+def test_watchdog_names_gap_incidents_never_percentages(tmp_path):
+    from dispatcher.runs import heartbeat, Watchdog
+    import time as _t
+    hub = make_hub(tmp_path)
+    heartbeat(hub); _t.sleep(0.01); heartbeat(hub); _t.sleep(0.06); heartbeat(hub)
+    obs = Watchdog(cadence_s=0.01).observe(hub.audit.read())
+    assert obs["computable"] and obs["beats"] == 3 and obs["gap_incidents"] == 1
+    assert "uptime" not in obs                            # no invented %
+
+
+def test_playbook_completion_counted_from_log_only(tmp_path):
+    from dispatcher.runs import PlaybookRun
+    from dispatcher.kpi import compute_kpis
+    hub = make_hub(tmp_path)
+    r1 = PlaybookRun(hub, "P11", "r1", "lead-a"); r1.step(1); r1.complete()
+    PlaybookRun(hub, "P11", "r2", "lead-b").step(1)       # never completed
+    k = compute_kpis(hub.audit.read())
+    pc = k["playbook_completion"]
+    assert pc["computable"] and pc["started"] == 2 and pc["rate"] == 0.5
+    assert pc["incomplete_runs"] == ["r2"]                # named, not hidden
+
+
+# ------------------------------------------------------------------ territories
+def test_signed_transfer_adopts_contexts_and_sequence_continues(tmp_path):
+    from dispatcher.signatures import Ed25519Signer, Ed25519Verifier
+    from dispatcher.territory import (build_transfer, receive_transfer,
+                                      confirm_release)
+    signer = Ed25519Signer()
+    a = make_hub(tmp_path / "a" if (tmp_path / "a").mkdir() is None else tmp_path)
+    b = Hub(Routes(FIX), AuditLog(str(tmp_path / "b.jsonl")), None)
+    b.register("02", lambda e: None)
+    for i in range(3):
+        a.send(env(payload={"n": i}))                     # hwm -> 3 on hub A
+    rec = build_transfer(a, ["ctx-1"], signer)
+    ack = receive_transfer(b, rec, Ed25519Verifier(signer.public_key_bytes()))
+    assert ack["status"] == "ack"
+    confirm_release(a, ["ctx-1"], ack)
+    r = b.send(env(payload={"n": 99}))                    # same ctx, hub B
+    assert r["status"] == "ack" and r["sequence"] == 4    # continues, no gap
+    assert "ctx-1" not in a.seq                           # never in two regions
+
+
+def test_unsigned_or_forged_transfer_refused_contexts_not_adopted(tmp_path):
+    from dispatcher.signatures import Ed25519Signer, Ed25519Verifier
+    from dispatcher.territory import build_transfer, receive_transfer, confirm_release
+    good, bad = Ed25519Signer(), Ed25519Signer()
+    a = make_hub(tmp_path)
+    a.send(env())
+    b = Hub(Routes(FIX), AuditLog(str(tmp_path / "b.jsonl")), None)
+    rec = build_transfer(a, ["ctx-1"], bad)               # wrong authority
+    res = receive_transfer(b, rec, Ed25519Verifier(good.public_key_bytes()))
+    assert res["status"] == "refused"
+    assert "ctx-1" not in b.seq                           # NOT adopted
+    assert b.queues["integrity.violation"]                # held for review
+    with pytest.raises(ValueError):
+        confirm_release(a, ["ctx-1"], res)                # sender keeps it

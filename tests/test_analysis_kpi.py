@@ -101,12 +101,12 @@ def test_noncomputable_kpis_declared_never_estimated(tmp_path):
     hub = make_hub(tmp_path)
     hub.send(env())
     k = compute_kpis(hub.audit.read())
-    for name in ("playbook_completion", "heartbeat_uptime"):
-        assert k["not_computable"][name]["computable"] is False
-        assert k["not_computable"][name]["missing"]   # names what's absent
-    # escalation transport is instrumented now — but with no escalation events
-    # in this run it must still declare itself non-computable, never estimate
-    assert k["escalation_transport_time"]["computable"] is False
+    # every KPI is instrumented now; each conditional one must still declare
+    # itself non-computable on a run with no such events — never estimate
+    for name in ("escalation_transport_time", "playbook_completion",
+                 "heartbeat"):
+        assert k[name]["computable"] is False
+        assert k[name]["missing"]                     # names what's absent
     # loop protection + manners are instrumented now: zero, computed, never estimated
     assert k["loop_suspensions"] == 0
     assert k["manners_reinjections"]["count"] == 0
