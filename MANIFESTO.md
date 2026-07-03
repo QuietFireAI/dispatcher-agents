@@ -85,9 +85,9 @@ Without this: every session restart loses the cognitive state. The agent begins 
 ---
 
 ### 6. [splitvantage](https://github.com/QuietFireAI/splitvantage)
-**Sends one task to two models — surfaces what each one's reasoning suppressed.**
+**Sends one task to two models - surfaces what each one's reasoning suppressed.**
 
-One model curates its own open questions; a second model, given the same task, surfaces the questions the first one quietly dropped. In the founding session (June 11 2026), the originating model named 6 open questions and the receiving model surfaced 11 — a delta of 5 the first model had suppressed in its own curation. splitvantage automates that cross-examination so the effect can be tested at scale.
+One model curates its own open questions; a second model, given the same task, surfaces the questions the first one quietly dropped. In the founding session (June 11 2026), the originating model named 6 open questions and the receiving model surfaced 11 - a delta of 5 the first model had suppressed in its own curation. splitvantage automates that cross-examination so the effect can be tested at scale.
 
 Without this: a single model's blind spots stay invisible, because the only thing positioned to catch them is another model that doesn't share them.
 

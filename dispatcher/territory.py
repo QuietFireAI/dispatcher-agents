@@ -1,9 +1,9 @@
-"""Territories — dispatcher-to-dispatcher handoff (DISPATCHER_CORE §Territories).
+"""Territories - dispatcher-to-dispatcher handoff (DISPATCHER_CORE §Territories).
 
 The spec, implemented literally:
 - Transfer record = client-context ownership + sequence high-water mark per
   context + open holds/queue items + the attested resource manifest.
-- The record is SIGNED. The receiving hub verifies fail-closed — an unsigned
+- The record is SIGNED. The receiving hub verifies fail-closed - an unsigned
   or badly signed transfer is refused, audited, and queued for human review;
   contexts are never adopted on trust.
 - The receiver acks the transfer the way it acks any envelope: persisted to
@@ -11,7 +11,7 @@ The spec, implemented literally:
   the sender marks contexts released only on the receiver's ack.
 - Spoke invariance: nothing here touches spokes. A transferred context's
   next envelope routes on the receiving hub with the sequence continuing
-  from the high-water mark — the train never knows the dispatcher changed.
+  from the high-water mark - the train never knows the dispatcher changed.
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def receive_transfer(hub, record: dict, verifier) -> dict:
     """Receiver side. Verify -> persist -> adopt -> ack. Fail-closed."""
     sig = record.get("signature")
     if not sig or not verifier.verify_bytes(_canonical(record), sig):
-        flag = {"reason": "territory transfer signature absent or invalid — "
+        flag = {"reason": "territory transfer signature absent or invalid - "
                           "refused, contexts NOT adopted, held for review",
                 "contexts": list(record.get("contexts", {}))}
         hub.queues["integrity.violation"].append(flag)
@@ -71,9 +71,9 @@ def receive_transfer(hub, record: dict, verifier) -> dict:
 
 
 def confirm_release(hub, contexts: list[str], receiver_ack: dict) -> None:
-    """Sender releases ownership ONLY on the receiver's ack — never before."""
+    """Sender releases ownership ONLY on the receiver's ack - never before."""
     if receiver_ack.get("status") != "ack":
-        raise ValueError("no receiver ack — contexts stay owned here; "
+        raise ValueError("no receiver ack - contexts stay owned here; "
                          "a context is never in two regions and never in none")
     for c in contexts:
         hub.seq.pop(c, None)

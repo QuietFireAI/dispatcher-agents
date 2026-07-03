@@ -1,17 +1,17 @@
-"""JIT run priority + siding — Day 3.
+"""JIT run priority + siding - Day 3.
 
-Implements DISPATCHER_CORE.md 'Run priority — JIT doctrine' verbatim:
-- Classes 1–4 are CORE and never change (1 escalation, 2 JIT freight,
+Implements DISPATCHER_CORE.md 'Run priority - JIT doctrine' verbatim:
+- Classes 1-4 are CORE and never change (1 escalation, 2 JIT freight,
   3 scheduled service, 4 junk trains).
 - Class assignment per playbook is VERTICAL-SPECIFIC and comes from the
-  identity module (loader supplies it) — never hardcoded here.
+  identity module (loader supplies it) - never hardcoded here.
 - Contention rule: two runs contending for the same spoke → higher class
   proceeds, lower takes the siding: held LIVE (state intact, never aborted
   by contention), resuming automatically when the segment clears.
 - Every siding event is logged (siding.hold / siding.resume) and is
   after-action reportable from the audit log alone.
 
-Ties: equal class does not side anyone — first holder keeps the segment,
+Ties: equal class does not side anyone - first holder keeps the segment,
 the contender waits in FIFO order behind it. Arrival order breaks ties
 WITHIN a class only; it never beats class (doctrine: 'never by arrival
 order' governs cross-class contention).
@@ -34,7 +34,7 @@ class SidingScheduler:
         if playbook not in self.classes:
             raise KeyError(
                 f"playbook {playbook!r} has no priority class in the identity "
-                f"module — unclassified traffic does not run (gate principle)")
+                f"module - unclassified traffic does not run (gate principle)")
         return self.classes[playbook]
 
     def request_segment(self, run_id: str, playbook: str, spoke: str) -> dict:
@@ -78,7 +78,7 @@ class SidingScheduler:
         q = self.sidings.get(spoke)
         if not q:
             return None
-        # best class first; FIFO within class — deque preserves arrival order
+        # best class first; FIFO within class - deque preserves arrival order
         best_i = min(range(len(q)), key=lambda i: q[i][1])
         nxt_run, nxt_cls = q[best_i]
         del q[best_i]

@@ -1,15 +1,15 @@
-"""Boot attestation — Day 3.
+"""Boot attestation - Day 3.
 
 At boot the hub hashes what it is about to run: every file in the dispatcher
 package plus the identity's routes.json. The manifest is audit-logged as
-boot.attestation — the run's provenance artifact.
+boot.attestation - the run's provenance artifact.
 
 Verification is fail-closed per the gate principle: a missing manifest, a
 missing file, or a hash mismatch is a named violation, never a silent pass.
-Presence of a manifest alone proves nothing — only recomputation does.
+Presence of a manifest alone proves nothing - only recomputation does.
 
 Limitation, stated plainly: this is integrity attestation (detect drift
-between what was reviewed and what is running), not authenticity — the
+between what was reviewed and what is running), not authenticity - the
 manifest is not yet signed, so it proves WHAT is running, not WHO approved
 it. Signing the manifest rides the signature layer (dispatcher.signatures)
 and is wired at deployment, not assumed here.
@@ -31,7 +31,7 @@ def _sha256(path: str) -> str:
 def build_manifest(package_dir: str, routes_path: str,
                    extra_files: list[str] | None = None) -> dict:
     """Hash every .py in the package + routes.json + any identity constants
-    (e.g. MANNERS.md — its own spec requires its hash registered at boot).
+    (e.g. MANNERS.md - its own spec requires its hash registered at boot).
     Deterministic order."""
     files = sorted(
         os.path.join(package_dir, f)
@@ -47,7 +47,7 @@ def verify_manifest(manifest: dict, package_dir: str, routes_path: str,
     """Recompute and compare. Returns [] only when everything matches.
     Every deviation is named: absent file, absent manifest entry, mismatch."""
     if not manifest:
-        return ["manifest absent — boot not attested; tainted, hold for review"]
+        return ["manifest absent - boot not attested; tainted, hold for review"]
     current = build_manifest(package_dir, routes_path, extra_files)
     violations = []
     for name, digest in manifest.items():
@@ -58,7 +58,7 @@ def verify_manifest(manifest: dict, package_dir: str, routes_path: str,
                               f"running {current[name][:12]}…)")
     for name in current:
         if name not in manifest:
-            violations.append(f"{name}: on disk, absent from manifest — unattested code")
+            violations.append(f"{name}: on disk, absent from manifest - unattested code")
     return violations
 
 
@@ -67,7 +67,7 @@ def attest_boot(hub, package_dir: str, routes_path: str,
                 signer=None) -> dict:
     """Build the manifest, sign it if an authority signer is supplied
     (Ed25519Signer or HmacSigner via .sign_bytes), and audit-log it.
-    An unsigned attestation is integrity-only — stated in the event."""
+    An unsigned attestation is integrity-only - stated in the event."""
     manifest = build_manifest(package_dir, routes_path, extra_files)
     record = {"manifest": manifest,
               "signed": bool(signer and hasattr(signer, "sign_bytes"))}

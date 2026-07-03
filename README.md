@@ -1,54 +1,54 @@
 # DispatcherAgents
 
-**A governance stack for AI agents** — tools that redirect an agent's attention to what it is actually doing: before it responds, after it responds, while it reasons, across sessions, and when it delegates.
+**A governance stack for AI agents** - tools that redirect an agent's attention to what it is actually doing: before it responds, after it responds, while it reasons, across sessions, and when it delegates.
 
-Read the [MANIFESTO](./MANIFESTO.md) for the full architecture. Read [EVIDENCE.md](./EVIDENCE.md) for every claim in the stack, classified by evidence status — the stack audits itself before anyone else gets the chance.
+Read the [MANIFESTO](./MANIFESTO.md) for the full architecture. Read [EVIDENCE.md](./EVIDENCE.md) for every claim in the stack, classified by evidence status - the stack audits itself before anyone else gets the chance.
 
 ## The Stack
 
 | Pillar | Repo | Role |
 |---|---|---|
-| 1 | [before-turn](https://github.com/QuietFireAI/before-turn) | Governs entry — reads prior thinking before every response |
-| 2 | [pre-response-selfcheck](https://github.com/QuietFireAI/pre-response-selfcheck) | Governs exit — reads output as a cold reader before delivering |
+| 1 | [before-turn](https://github.com/QuietFireAI/before-turn) | Governs entry - reads prior thinking before every response |
+| 2 | [pre-response-selfcheck](https://github.com/QuietFireAI/pre-response-selfcheck) | Governs exit - reads output as a cold reader before delivering |
 | 3 | [agent-open-mind](https://github.com/QuietFireAI/agent-open-mind) | Reads what sub-agents thought, not what they said |
 | 4 | [open-mind](https://github.com/QuietFireAI/open-mind) | Compares what the agent thought to what it said |
 | 5 | [sleep-marks](https://github.com/QuietFireAI/sleep-marks) | Restores reasoning state across session breaks |
 | 6 | [splitvantage](https://github.com/QuietFireAI/splitvantage) | Sends the same task to two models, surfaces divergence (CrossPol) |
 
-Enterprise extension (referenced, not required): [TelsonBase](https://github.com/QuietFireAI/TelsonBase) — permissions, audit, trust levels.
+Enterprise extension (referenced, not required): [TelsonBase](https://github.com/QuietFireAI/TelsonBase) - permissions, audit, trust levels.
 
 ## How the tiers fit (the whole org, one sentence each)
 
-- **Instruction tier** — the dispatcher runtime in this repo: a closed-track
+- **Instruction tier** - the dispatcher runtime in this repo: a closed-track
   message hub where every (from → intent → to) tuple is enforced at send time,
   acks exist only after persist-and-delivery, and the audit log is the sole
   source of every KPI and after-action report.
-- **Detection tier** — the six pillars above, wired into the runtime as
+- **Detection tier** - the six pillars above, wired into the runtime as
   seams: before-turn at turn entry, open-mind's Comparator on the hub's own
   reasoning-vs-action artifacts, agent-open-mind on every spoke trace
   (absent thought = tainted, never silently admitted), sleep-marks at crew
   change, splitvantage for cross-model review.
-- **Structural tier** — TelsonBase: allow/gate/block per tool call, below
+- **Structural tier** - TelsonBase: allow/gate/block per tool call, below
   the model, for deployments that need enforcement rather than detection.
 
 Instruction < detection < structural. The org is the hierarchy.
 
 ## Runtime (in this repo)
 
-`dispatcher/` — the hub: envelope schema with enforced confidence vocabulary,
+`dispatcher/` - the hub: envelope schema with enforced confidence vocabulary,
 tuple-legality routing, append-only fsynced audit log, HMAC authority
 signatures, boot attestation (hash manifest, fail-closed verification), JIT
 priority classes with live-hold siding, identity side-load loader, KPI
 computation from the log only, after-action generation per schema. Tests are
 doctrine as executable assertions, run against a real 35-route vertical
-track — see README-BUILD.md for the claim-to-test map and EVIDENCE-runtime.md
+track - see README-BUILD.md for the claim-to-test map and EVIDENCE-runtime.md
 for the evidence classes.
 
 ## Verticals (identity side-loads)
 
 | Vertical | Repo | Status |
 |---|---|---|
-| Real-estate listing agent | [listing-agents](https://github.com/QuietFireAI/listing-agents) | v0.17 — 21 agents, 15 playbooks, 35 ratified route tuples, DRAFT priority classes; runtime-driven in the P11 end-to-end demo. First of several. |
+| Real-estate listing agent | [listing-agents](https://github.com/QuietFireAI/listing-agents) | v0.17 - 21 agents, 15 playbooks, 35 ratified route tuples, DRAFT priority classes; runtime-driven in the P11 end-to-end demo. First of several. |
 
 ## Quickstart
 
@@ -64,9 +64,9 @@ IDENTITY_DIR=../listing-agents python3 demo/run_p11_demo.py   # real spokes chai
 
 This is the hub: the manifesto, the claims ledger, and the findings.
 
-- [MANIFESTO.md](./MANIFESTO.md) — what the stack is and why
-- [EVIDENCE.md](./EVIDENCE.md) — the claims ledger (MEASURED / OBSERVED / HYPOTHESIS / DESIGN CLAIM / POSITION)
-- [findings/](./findings/) — documented observations, each with its evidence class and, where applicable, a preregistered validation protocol
+- [MANIFESTO.md](./MANIFESTO.md) - what the stack is and why
+- [EVIDENCE.md](./EVIDENCE.md) - the claims ledger (MEASURED / OBSERVED / HYPOTHESIS / DESIGN CLAIM / POSITION)
+- [findings/](./findings/) - documented observations, each with its evidence class and, where applicable, a preregistered validation protocol
 
 ## Status
 
@@ -80,4 +80,4 @@ after-action schema).
 
 ## License
 
-MIT — [QuietFireAI](https://github.com/QuietFireAI)
+MIT - [QuietFireAI](https://github.com/QuietFireAI)

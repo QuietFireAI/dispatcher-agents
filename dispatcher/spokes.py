@@ -1,13 +1,13 @@
-"""Real spokes for the listing vertical — no no-op lambdas.
+"""Real spokes for the listing vertical - no no-op lambdas.
 
 Each spoke does deterministic real work on the payload, submits its OWN
 thought trace (agent-open-mind's ingest is part of the spoke contract, not
-the script's), and reacts by sending follow-on envelopes over the hub —
+the script's), and reacts by sending follow-on envelopes over the hub - 
 the swarm chains itself; the driver only injects the initial signal.
 
 Exception, deliberate and labeled: Spoke03's nurture handler reports a
 result WITHOUT a thought trace. It is the negative-path exhibit for the
-taint gate — a spoke whose reasoning went dark. Keep it dark; the runtime
+taint gate - a spoke whose reasoning went dark. Keep it dark; the runtime
 is supposed to catch it, and the test asserts that it does.
 """
 from __future__ import annotations
@@ -38,8 +38,8 @@ class Spoke14CRM:
             key = env.payload.get("dedupe_key", env.client_context_id)
             known = key in self.records
             self.records.setdefault(key, {"ctx": env.client_context_id})
-            verdict = ("HIT — prior record exists, caller must merge not "
-                       "duplicate" if known else "MISS — new record created")
+            verdict = ("HIT - prior record exists, caller must merge not "
+                       "duplicate" if known else "MISS - new record created")
             self.hub.ingest_spoke_trace(
                 "14", env.envelope_id,
                 thought=f"lookup key={key!r}: {verdict}",
@@ -69,7 +69,7 @@ class Spoke01LeadCapture:
             if consent != "recorded":
                 self.hub.ingest_spoke_trace(
                     "01", env.envelope_id,
-                    thought=f"consent={consent!r} — TCPA gate: cannot proceed "
+                    thought=f"consent={consent!r} - TCPA gate: cannot proceed "
                             f"to outreach tiering without recorded consent; "
                             f"holding, not guessing",
                     result="held: consent not recorded")
@@ -78,7 +78,7 @@ class Spoke01LeadCapture:
             self.hub.ingest_spoke_trace(
                 "01", env.envelope_id,
                 thought="consent recorded; dedupe against CRM before tiering "
-                        "— duplicate leads double-count pipeline",
+                        " -  duplicate leads double-count pipeline",
                 result="record.request issued")
             self.hub.send(_env("01", "14", "record.request",
                                env.client_context_id,
@@ -117,7 +117,7 @@ class Spoke02Qualification:
             thought=f"rubric v3: budget={p.get('budget')}, "
                     f"timeline={p.get('timeline_days')}d, "
                     f"channel={p.get('channel')} -> score={score}; "
-                    f"duplicate={p.get('duplicate')} — if duplicate, tier "
+                    f"duplicate={p.get('duplicate')} - if duplicate, tier "
                     f"stands but pipeline count must not increment",
             result=f"tier={tier} score={score}")
         if tier == "HOT":

@@ -33,7 +33,7 @@ def env(frm="01", to="02", intent="lead.captured", **kw):
 def test_absent_thought_tainted_at_ingestion_not_only_at_analysis(tmp_path):
     hub = make_hub(tmp_path)
     hub.ingest_spoke_trace("07", "env-1", thought="  ", result="done")
-    # flagged IMMEDIATELY — before any analysis runs
+    # flagged IMMEDIATELY - before any analysis runs
     assert any(r.get("tainted") for r in hub.queues["integrity.violation"])
     assert "agentopenmind.tainted" in [e["kind"] for e in hub.audit.read()]
 
@@ -313,7 +313,7 @@ def test_real_spokes_chain_hot_and_warm_from_single_signals(tmp_path):
               human_notifier=lambda q, r: notified.append(q))
     crm, cap = Spoke14CRM(hub), Spoke01LeadCapture(hub)
     qual, nur = Spoke02Qualification(hub), Spoke03Nurture(hub)
-    # single injected signal per lead — spokes chain the rest themselves
+    # single injected signal per lead - spokes chain the rest themselves
     hub.send(env(frm="20", to="01", intent="lead.signal", ctx="lead-w",
                  payload={"consent": "recorded", "email": "w@x.com",
                           "budget": 550_000, "timeline_days": 90,

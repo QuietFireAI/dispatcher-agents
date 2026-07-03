@@ -1,13 +1,13 @@
-"""Pillar analysis wiring — Day 2.
+"""Pillar analysis wiring - Day 2.
 
 Consumes the seams Day 1 left deliberately empty:
-  hub.reflection_artifacts  -> open-mind Comparator (PILLAR source, imported —
+  hub.reflection_artifacts -> open-mind Comparator (PILLAR source, imported - 
                                not a vendored copy; repackaging drift is a
                                named defect class, P4).
-  hub.spoke_traces          -> agent-open-mind scoring. Semantics from the
+  hub.spoke_traces -> agent-open-mind scoring. Semantics from the
                                pillar's SKILL.md protocol verbatim:
                                (1) read the trace, not just the result;
-                               (2) Absent Thoughts = Tainted Result — flag,
+                               (2) Absent Thoughts = Tainted Result - flag,
                                    never silent-admit;
                                (3) feed suppressed uncertainty back to the
                                    dispatcher's decision layer.
@@ -29,7 +29,7 @@ def analyze_reflections(hub, drift_threshold: float = 0.4) -> list[dict]:
 
     Returns one record per artifact: envelope_id, drift_score, signals,
     flagged (score >= threshold). Each record is appended to the audit log
-    as kind='openmind.drift' before it is returned — persist before report,
+    as kind='openmind.drift' before it is returned - persist before report,
     same rule as delivery.
     """
     results = []
@@ -50,7 +50,7 @@ def analyze_reflections(hub, drift_threshold: float = 0.4) -> list[dict]:
 def score_spoke_traces(hub, drift_threshold: float = 0.4) -> list[dict]:
     """agent-open-mind protocol over hub-collected spoke traces.
 
-    Gate first: a trace with no thought content is TAINTED — flagged for
+    Gate first: a trace with no thought content is TAINTED - flagged for
     review via the integrity queue and audit-logged, never silently admitted
     and never scored as if a trace existed. Presence is then analyzed:
     thought-vs-result drift, so the dispatcher decides on what the spoke
@@ -62,10 +62,10 @@ def score_spoke_traces(hub, drift_threshold: float = 0.4) -> list[dict]:
         base = {"agent": trace["agent"], "envelope_id": trace["envelope_id"]}
         if not thought:
             rec = {**base, "tainted": True,
-                   "reason": "absent thought trace — tainted result, held for review"}
+                   "reason": "absent thought trace - tainted result, held for review"}
             if not trace.get("tainted"):
                 # not caught at ingestion (e.g. trace loaded from elsewhere):
-                # the analysis layer is the backstop — flag here
+                # the analysis layer is the backstop - flag here
                 hub.queues["integrity.violation"].append(rec)
                 hub.audit.append("agentopenmind.tainted", rec)
             results.append(rec)

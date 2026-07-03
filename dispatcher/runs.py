@@ -1,14 +1,14 @@
-"""Heartbeat + playbook-run instrumentation — the last two KPI gaps.
+"""Heartbeat + playbook-run instrumentation - the last two KPI gaps.
 
 Heartbeat: hub emits `heartbeat` events on cadence; the Watchdog OBSERVES
-(spec: 'external watchdog observations' — it reads the log, it never
+(spec: 'external watchdog observations' - it reads the log, it never
 self-reports for the hub) and names gap incidents where the interval
 exceeded 2x cadence. No uptime PERCENTAGE is invented: without an external
 wall-clock baseline a percentage would be an estimate, and estimates are
 banned. Gaps, spans, and incident counts are facts; report those.
 
 Playbook runs: started / step / completed events so completion becomes a
-counted KPI. A run with no `playbook.completed` on the log is incomplete —
+counted KPI. A run with no `playbook.completed` on the log is incomplete - 
 there is no other evidence class for done.
 """
 from __future__ import annotations

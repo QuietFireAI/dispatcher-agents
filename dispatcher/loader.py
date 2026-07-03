@@ -1,16 +1,16 @@
-"""Identity side-load loader — Day 3.
+"""Identity side-load loader - Day 3.
 
 Loads a vertical identity package (the side-load) into runtime shape:
-  routes.json          REQUIRED — the closed track. Absent = refuse to load.
-  priority.json        OPTIONAL — playbook priority classes. Absent = the
+  routes.json          REQUIRED - the closed track. Absent = refuse to load.
+  priority.json        OPTIONAL - playbook priority classes. Absent = the
                        SidingScheduler cannot run playbook traffic (it fails
                        closed on unclassified playbooks); absence is NAMED in
                        the returned identity, never silently defaulted.
-  NN-*/SKILL.md        agent dirs — each numbered dir must carry a SKILL.md;
+  NN-*/SKILL.md        agent dirs - each numbered dir must carry a SKILL.md;
                        a numbered dir without one is a violation, not a skip.
 
 Gate principle throughout: absence of an expected artifact is reported by
-name. Presence alone is never treated as validity — routes.json must parse
+name. Presence alone is never treated as validity - routes.json must parse
 and carry routes; priority classes must be ints in 1..4.
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ def load_identity(root: str) -> Identity:
     routes_path = _find(root, "routes.json")
     if not routes_path:
         raise FileNotFoundError(
-            f"identity at {root!r}: routes.json absent — no closed track, "
+            f"identity at {root!r}: routes.json absent - no closed track, "
             f"refusing to load (gate principle)")
     try:
         routes_doc = json.load(open(routes_path))
@@ -63,7 +63,7 @@ def load_identity(root: str) -> Identity:
 
     prio_path = _find(root, "priority.json")
     priority: dict[str, int] | None = None
-    prio_status = "absent — playbook traffic cannot be scheduled until supplied"
+    prio_status = "absent - playbook traffic cannot be scheduled until supplied"
     if prio_path:
         doc = json.load(open(prio_path))
         classes = doc.get("classes", {})
@@ -81,7 +81,7 @@ def load_identity(root: str) -> Identity:
     manners = os.path.join(root, "MANNERS.md")
     if not os.path.exists(manners):
         manners = None
-        warnings.append("MANNERS.md absent — conduct constants cannot be "
+        warnings.append("MANNERS.md absent - conduct constants cannot be "
                         "hash-registered at boot attestation")
     return Identity(
         root=root,

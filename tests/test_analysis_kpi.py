@@ -38,7 +38,7 @@ def test_reflections_analyzed_and_audited(tmp_path):
 
 def test_ported_uncertainty_weight_is_030_not_020():
     # one suppressed uncertainty marker must contribute 0.3 (thought-cycle's
-    # improvement, now ported upstream) — 0.2 means the stale pillar is wired
+    # improvement, now ported upstream) - 0.2 means the stale pillar is wired
     from open_mind.comparator import Comparator
     # response long enough to keep the length-divergence signal silent, no
     # confidence markers: isolates signal 1. One suppressed marker -> 0.3.
@@ -87,7 +87,7 @@ def test_kpis_computed_from_audit_log_only(tmp_path):
     hub.send(env(frm="07", to="15", intent="interaction.log"))  # reject
     hub.register("02", lambda e: (_ for _ in ()).throw(RuntimeError("boom")))
     hub.send(env(payload={"n": 2}))                  # dead.letter
-    k = compute_kpis(hub.audit.read())               # log only — no hub access
+    k = compute_kpis(hub.audit.read())               # log only - no hub access
     assert k["ack_integrity"]["rate"] == 1.0
     assert k["ack_integrity"]["integrity_incidents"] == 0
     assert k["dedupe_hits"] == 1
@@ -102,7 +102,7 @@ def test_noncomputable_kpis_declared_never_estimated(tmp_path):
     hub.send(env())
     k = compute_kpis(hub.audit.read())
     # every KPI is instrumented now; each conditional one must still declare
-    # itself non-computable on a run with no such events — never estimate
+    # itself non-computable on a run with no such events - never estimate
     for name in ("escalation_transport_time", "playbook_completion",
                  "heartbeat"):
         assert k[name]["computable"] is False

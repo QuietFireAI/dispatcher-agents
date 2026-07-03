@@ -1,6 +1,6 @@
-"""After-action report generator — Day 4.
+"""After-action report generator - Day 4.
 
-Implements AFTER_ACTION.md's template from the audit log ONLY — never from
+Implements AFTER_ACTION.md's template from the audit log ONLY - never from
 agent memory, never self-reported. One markdown report per run.
 
 Schema fields the runtime cannot yet populate are DECLARED, not faked:
@@ -32,14 +32,14 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
                     outcome: str = "completed",
                     abort_reason: str | None = None) -> str:
     """events: full audit log. steps: the playbook's step list as executed,
-    each {step, agent, intent, envelope_id} — proof and latency are looked up
+    each {step, agent, intent, envelope_id} - proof and latency are looked up
     in the log, never taken from the caller's word."""
     run_events = [e for e in events
                   if e.get("client_context_id") == client_context_id
                   or e.get("envelope_id") in {s.get("envelope_id") for s in steps}
                   or e["kind"] in ("escalation.raised", "human.notified")]
     if not run_events:
-        raise ValueError(f"no audited events for run {run_id!r} — a report "
+        raise ValueError(f"no audited events for run {run_id!r} - a report "
                          f"without log evidence would be fabricated")
     t0, t1 = run_events[0]["ts"], run_events[-1]["ts"]
 
@@ -47,7 +47,7 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
                  if e["kind"] == "envelope.persisted"}
     acked = {e.get("envelope_id"): e["ts"] for e in events if e["kind"] == "ack"}
 
-    lines = [f"# After-Action — {playbook} run {run_id}", "",
+    lines = [f"# After-Action - {playbook} run {run_id}", "",
              "## run",
              f"- playbook: {playbook}",
              f"- run_id: {run_id}",
@@ -55,7 +55,7 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
              f"- started: {_iso(t0)}",
              f"- ended: {_iso(t1)}", "",
              "## outcome",
-             f"- {outcome}" + (f" — verbatim reason: {abort_reason}"
+             f"- {outcome}" + (f" - verbatim reason: {abort_reason}"
                                if abort_reason else ""), "",
              "## steps"]
     for s in steps:
@@ -67,7 +67,7 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
                          f"executed=yes, proof={proof}, latency={lat:.4f}s")
         else:
             lines.append(f"- step {s['step']} [{s['agent']}] {s['intent']}: "
-                         f"executed=NO ACK ON LOG (envelope {eid}) — "
+                         f"executed=NO ACK ON LOG (envelope {eid}) - "
                          f"unproven, not counted done")
 
     lines += ["", "## gates"]
@@ -78,7 +78,7 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
                     if esc else "not triggered this run"))
     lines.append(f"- absent-thought taint gate: "
                  + (f"TRIGGERED x{len(taints)} (evidence: agentopenmind.tainted)"
-                    if taints else "cleared — all traces present"))
+                    if taints else "cleared - all traces present"))
 
     lines += ["", "## deviations"]
     devs = [e for e in run_events if e["kind"] in _DEVIATION_KINDS]
@@ -98,7 +98,7 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
                 lines.append(f"- {q}: transport {notif[q]-e['ts']:.4f}s; "
                              f"human response time: NOT INSTRUMENTED")
             else:
-                lines.append(f"- {q}: raised, NO human.notified on log — "
+                lines.append(f"- {q}: raised, NO human.notified on log - "
                              f"transport unproven")
     else:
         lines.append("- none")

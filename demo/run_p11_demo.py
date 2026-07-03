@@ -1,12 +1,12 @@
-"""End-to-end demo: P11 speed-to-lead — REAL spokes, no stubs.
+"""End-to-end demo: P11 speed-to-lead - REAL spokes, no stubs.
 
 The driver injects exactly two lead.signal envelopes and runs heartbeats.
-Everything else — CRM dedupe round-trip, consent gating, rubric scoring,
+Everything else - CRM dedupe round-trip, consent gating, rubric scoring,
 nurture enrollment, hot-lead escalation, interaction logging, thought
-traces — is the spokes chaining over the closed track. Spoke03 is the
+traces - is the spokes chaining over the closed track. Spoke03 is the
 deliberate dark-trace exhibit; the taint gate must catch it.
 Steps in the after-action are reconstructed from the audit log's own
-persist/ack records — the driver's memory is not evidence.
+persist/ack records - the driver's memory is not evidence.
 """
 import os
 import sys

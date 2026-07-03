@@ -11,10 +11,9 @@ requires-python = ">=3.10"
 # Install from source BEFORE running tests/test_analysis_kpi.py:
 #   pip install -e <path-to-open-mind-clone>
 # NOTE: dispatcher.analysis requires the comparator at uncertainty weight 0.3
-# with the broadened confidence regex. As of Day 2 that version exists only in
-# the local ported clone — the live QuietFireAI/open-mind repo still carries
-# 0.2 until the Day 4 push lands. A test pins the ported version and will
-# FAIL LOUDLY against the stale pillar. That is intended.
+# with the broadened confidence regex. The live QuietFireAI/open-mind repo
+# carries this since commit 857f0dc (pushed and SHA-verified 07/2026). A test
+# pins the version and FAILS LOUDLY against any stale pillar. That is intended.
 
 [tool.setuptools]
 packages = ["dispatcher"]

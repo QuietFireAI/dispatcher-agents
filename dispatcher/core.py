@@ -1,8 +1,8 @@
-"""dispatcher.core — the TelsonBase dispatcher message core (Day 1).
+"""dispatcher.core - the TelsonBase dispatcher message core (Day 1).
 
 Doctrine encoded as executable behavior:
 - An ack is a factual claim: issued only after persist (audit) AND delivery.
-- The (from -> intent -> to) tuple is enforced at runtime — the track is closed.
+- The (from -> intent -> to) tuple is enforced at runtime - the track is closed.
 - envelope_id is the idempotency key; duplicates process once.
 - sequence is hub-assigned per client_context_id; hub is the single writer.
 - Authority intents require a verified signature; sender fields are forgeable.
@@ -79,7 +79,7 @@ class Routes:
 
 class AuditLog:
     """Append-only JSONL. Persist happens BEFORE delivery; the log is the
-    single source of truth for KPIs — no self-reported metrics exist."""
+    single source of truth for KPIs - no self-reported metrics exist."""
 
     def __init__(self, path: str):
         self.path = path

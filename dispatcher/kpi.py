@@ -1,10 +1,10 @@
-"""KPI module — Day 2.
+"""KPI module - Day 2.
 
 Spec: DISPATCHER_CORE.md 'Standardized KPIs (identity-independent)'.
-Rule from the spec, enforced literally here: computed from the audit log —
+Rule from the spec, enforced literally here: computed from the audit log - 
 the log is the instrumentation; no self-reported metrics; never estimate a
 KPI from memory. KPIs whose required events the runtime does not yet emit
-are returned as {"computable": False, "missing": <event kinds>} — declared
+are returned as {"computable": False, "missing": <event kinds>} - declared
 absent, never estimated. (Gate principle: absence of the expected artifact
 is reported, not papered over.)
 
@@ -12,16 +12,16 @@ Computable from Day 1/2 event kinds
 (ack, envelope.persisted, reject, dead.letter, dedupe.hit, hold.clarification,
  integrity.violation, hub.reflection, spoke.trace, turn.start,
  openmind.drift, agentopenmind.tainted, agentopenmind.trace):
-  - ack integrity rate          (ack backed by prior persist of same envelope)
-  - routing latency             (persist ts -> ack ts, same envelope)
-  - queue health                (dead-letter rate, hold count, taint count)
-  - dedupe hits, signature/integrity rejections, sequence-gap incidents
+ - ack integrity rate          (ack backed by prior persist of same envelope)
+ - routing latency             (persist ts -> ack ts, same envelope)
+ - queue health                (dead-letter rate, hold count, taint count)
+ - dedupe hits, signature/integrity rejections, sequence-gap incidents
 
-NOT computable yet — no emitting instrumentation exists:
-  - escalation transport time   (no human-notification event)
-  - playbook completion / completion-proof coverage (no playbook events)
-  - heartbeat uptime            (external watchdog does not exist)
-  - loop suspensions            (no suspension event kind)
+NOT computable yet - no emitting instrumentation exists:
+ - escalation transport time   (no human-notification event)
+ - playbook completion / completion-proof coverage (no playbook events)
+ - heartbeat uptime            (external watchdog does not exist)
+ - loop suspensions            (no suspension event kind)
 """
 from __future__ import annotations
 
@@ -117,7 +117,7 @@ def compute_kpis(events: list[dict]) -> dict:
         heartbeat_obs = {"computable": True, "beats": len(beats),
                          "span_s": beats[-1] - beats[0],
                          "max_gap_s": max(gaps)}
-        # NOTE: gap INCIDENTS need an expected cadence — that lives with the
+        # NOTE: gap INCIDENTS need an expected cadence - that lives with the
         # external Watchdog (dispatcher.runs), which owns the threshold.
     else:
         heartbeat_obs = {"computable": False,

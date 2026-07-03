@@ -1,20 +1,20 @@
-"""Envelope signatures — Day 3.
+"""Envelope signatures - Day 3.
 
 Replaces Day 1's deny-all placeholder verifier with real verification:
 HMAC-SHA256 over a canonical serialization of the envelope's identity-bearing
-fields. Constant-time comparison. Stdlib only — the package keeps its
+fields. Constant-time comparison. Stdlib only - the package keeps its
 zero-dependency property.
 
 Canonical fields: envelope_id, from_agent, to_agent, intent,
-client_context_id, payload (sorted-key JSON). sequence is EXCLUDED —
+client_context_id, payload (sorted-key JSON). sequence is EXCLUDED - 
 signatures are applied by the sender, sequence is stamped by the hub after
 persist; signing it would break verification on every legitimate envelope.
 
-Limitation, stated plainly: HMAC is symmetric — any party holding the key
+Limitation, stated plainly: HMAC is symmetric - any party holding the key
 can sign, not just verify. That is acceptable while the only authorized
 signer is the human principal's own tooling holding the only key. It is NOT
 sufficient for multi-party authority. The upgrade path is Ed25519
-(asymmetric), deferred because it requires the `cryptography` dependency —
+(asymmetric), deferred because it requires the `cryptography` dependency - 
 a deployment decision, not a default.
 """
 from __future__ import annotations
@@ -62,7 +62,7 @@ class HmacSigner:
 
 # --------------------------------------------------------------- Ed25519 tier
 # Asymmetric authority: private key signs, public key verifies. Verifiers
-# cannot forge — this is the multi-party upgrade HMAC cannot provide.
+# cannot forge - this is the multi-party upgrade HMAC cannot provide.
 # Requires `cryptography` (the package's ONLY optional dependency; import is
 # deferred so HMAC deployments stay zero-dep).
 
@@ -95,7 +95,7 @@ class Ed25519Signer:
 
 
 class Ed25519Verifier:
-    """Hub side: public key only — can verify, cannot sign."""
+    """Hub side: public key only - can verify, cannot sign."""
 
     def __init__(self, public_key_bytes: bytes):
         from cryptography.hazmat.primitives.asymmetric.ed25519 import (

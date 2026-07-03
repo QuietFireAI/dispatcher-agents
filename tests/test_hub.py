@@ -1,5 +1,5 @@
 """Doctrine as executable assertions, against the REAL 35-route listing-agent
-track (routes_fixture.json exported from v0.16 ROUTES) — not toy data."""
+track (routes_fixture.json exported from v0.16 ROUTES) - not toy data."""
 import os, sys, json, pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dispatcher.core import Envelope, Routes, AuditLog
