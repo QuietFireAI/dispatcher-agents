@@ -50,6 +50,16 @@ for the evidence classes.
 |---|---|---|
 | Real-estate listing agent | [listing-agents](https://github.com/QuietFireAI/listing-agents) | v0.17 — 21 agents, 15 playbooks, 35 ratified route tuples, DRAFT priority classes; runtime-driven in the P11 end-to-end demo. First of several. |
 
+## Quickstart
+
+```
+git clone https://github.com/QuietFireAI/dispatcher-agents
+cd dispatcher-agents && pip install -e .            # zero deps (Ed25519 optional: pip install cryptography)
+python3 -m pytest tests/                            # 51 doctrine tests vs the real 35-route track
+git clone https://github.com/QuietFireAI/listing-agents ../listing-agents
+IDENTITY_DIR=../listing-agents python3 demo/run_p11_demo.py   # real spokes chain 11 envelopes from 2 signals
+```
+
 ## This Repo
 
 This is the hub: the manifesto, the claims ledger, and the findings.
