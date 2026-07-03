@@ -28,22 +28,27 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def build_manifest(package_dir: str, routes_path: str) -> dict:
-    """Hash every .py in the package + routes.json. Deterministic order."""
+def build_manifest(package_dir: str, routes_path: str,
+                   extra_files: list[str] | None = None) -> dict:
+    """Hash every .py in the package + routes.json + any identity constants
+    (e.g. MANNERS.md — its own spec requires its hash registered at boot).
+    Deterministic order."""
     files = sorted(
         os.path.join(package_dir, f)
         for f in os.listdir(package_dir) if f.endswith(".py")
     )
     files.append(routes_path)
+    files.extend(extra_files or [])
     return {os.path.basename(p): _sha256(p) for p in files}
 
 
-def verify_manifest(manifest: dict, package_dir: str, routes_path: str) -> list[str]:
+def verify_manifest(manifest: dict, package_dir: str, routes_path: str,
+                    extra_files: list[str] | None = None) -> list[str]:
     """Recompute and compare. Returns [] only when everything matches.
     Every deviation is named: absent file, absent manifest entry, mismatch."""
     if not manifest:
         return ["manifest absent — boot not attested; tainted, hold for review"]
-    current = build_manifest(package_dir, routes_path)
+    current = build_manifest(package_dir, routes_path, extra_files)
     violations = []
     for name, digest in manifest.items():
         if name not in current:
@@ -57,8 +62,18 @@ def verify_manifest(manifest: dict, package_dir: str, routes_path: str) -> list[
     return violations
 
 
-def attest_boot(hub, package_dir: str, routes_path: str) -> dict:
-    """Build the manifest and put it on the audit log. Returns the manifest."""
-    manifest = build_manifest(package_dir, routes_path)
-    hub.audit.append("boot.attestation", {"manifest": manifest})
+def attest_boot(hub, package_dir: str, routes_path: str,
+                extra_files: list[str] | None = None,
+                signer=None) -> dict:
+    """Build the manifest, sign it if an authority signer is supplied
+    (Ed25519Signer or HmacSigner via .sign_bytes), and audit-log it.
+    An unsigned attestation is integrity-only — stated in the event."""
+    manifest = build_manifest(package_dir, routes_path, extra_files)
+    record = {"manifest": manifest,
+              "signed": bool(signer and hasattr(signer, "sign_bytes"))}
+    if record["signed"]:
+        import json as _json
+        record["manifest_signature"] = signer.sign_bytes(
+            _json.dumps(manifest, sort_keys=True).encode())
+    hub.audit.append("boot.attestation", record)
     return manifest

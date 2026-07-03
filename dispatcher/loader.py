@@ -30,6 +30,7 @@ class Identity:
     agents: dict[str, str]                 # agent id -> SKILL.md path
     priority_classes: dict[str, int] | None
     priority_status: str
+    manners_path: str | None = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -77,6 +78,11 @@ def load_identity(root: str) -> Identity:
     else:
         warnings.append("priority.json " + prio_status)
 
+    manners = os.path.join(root, "MANNERS.md")
+    if not os.path.exists(manners):
+        manners = None
+        warnings.append("MANNERS.md absent — conduct constants cannot be "
+                        "hash-registered at boot attestation")
     return Identity(
         root=root,
         routes_path=routes_path,
@@ -85,6 +91,7 @@ def load_identity(root: str) -> Identity:
         agents=agents,
         priority_classes=priority,
         priority_status=prio_status,
+        manners_path=manners,
         warnings=warnings,
     )
 

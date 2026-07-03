@@ -219,3 +219,84 @@ def test_p11_demo_end_to_end(tmp_path, monkeypatch):
     assert "TRIGGERED" in report                    # both gates fired
     assert "NOT INSTRUMENTED" in report             # declared, not faked
     assert "'computable': True" in report           # escalation transport real
+
+
+# --------------------------------------------- loop protection + manners (Day 5)
+def test_loop_suspends_at_threshold_into_clarification(tmp_path):
+    hub = make_hub(tmp_path)
+    hub.loop_threshold = 3
+    results = [hub.send(env(payload={"n": i})) for i in range(5)]
+    assert [r["status"] for r in results] == ["ack"] * 3 + ["suspended"] * 2
+    assert len(hub.queues["clarification.request"]) == 2
+    assert "loop.suspended" in [e["kind"] for e in hub.audit.read()]
+
+
+def test_retries_never_inflate_loop_count(tmp_path):
+    hub = make_hub(tmp_path)
+    hub.loop_threshold = 2
+    e = env()
+    hub.send(e)
+    for _ in range(5):                       # ack-loss retries: dedupe first
+        assert hub.send(e)["status"] == "duplicate"
+    assert hub.send(env(payload={"n": 2}))["status"] == "ack"   # count is 2, not 7
+
+
+def test_manners_reinjection_audited_and_kpi_counted(tmp_path):
+    from dispatcher.kpi import compute_kpis
+    hub = make_hub(tmp_path)
+    hub.manners_reinjection("phase_gate", position="P11 step 3")
+    hub.manners_reinjection("post_compaction")
+    with pytest.raises(ValueError):
+        hub.manners_reinjection("vibes")     # unknown trigger refused
+    k = compute_kpis(hub.audit.read())
+    assert k["manners_reinjections"]["count"] == 2
+    assert k["manners_reinjections"]["by_trigger"]["phase_gate"] == 1
+
+
+# --------------------------------------------------------- Ed25519 (approved)
+def test_ed25519_signed_authority_acks_and_verifier_cannot_forge(tmp_path):
+    from dispatcher.signatures import Ed25519Signer, Ed25519Verifier
+    signer = Ed25519Signer()
+    verifier = Ed25519Verifier(signer.public_key_bytes())
+    hub = make_hub(tmp_path, verifier=verifier.verifier())
+    hub.register("05", lambda e: None)
+    e = env(frm="human", to="05", intent="listing.change.authorized")
+    signer.sign(e)
+    assert hub.send(e)["status"] == "ack"
+    assert not hasattr(verifier, "sign")     # hub side holds no signing power
+
+
+def test_ed25519_tamper_and_forge_reject(tmp_path):
+    from dispatcher.signatures import Ed25519Signer, Ed25519Verifier
+    signer = Ed25519Signer()
+    hub = make_hub(tmp_path,
+                   verifier=Ed25519Verifier(signer.public_key_bytes()).verifier())
+    hub.register("05", lambda e: None)
+    e = env(frm="human", to="05", intent="listing.change.authorized",
+            payload={"price": 500000})
+    signer.sign(e)
+    e.payload["price"] = 1                   # tamper after sign
+    assert hub.send(e)["status"] == "reject"
+    e2 = env(frm="human", to="05", intent="listing.change.authorized")
+    e2.signature = Ed25519Signer().sign_bytes(b"wrong key entirely")
+    assert hub.send(e2)["status"] == "reject"
+
+
+def test_signed_boot_manifest_with_manners_hash(tmp_path):
+    from dispatcher.signatures import Ed25519Signer, Ed25519Verifier
+    from dispatcher.attestation import attest_boot, verify_manifest
+    import json as _json
+    ident = load_identity(LISTING) if os.path.isdir(LISTING) else None
+    if ident is None or ident.manners_path is None:
+        pytest.skip("real identity with MANNERS.md not present")
+    signer = Ed25519Signer()
+    hub = make_hub(tmp_path)
+    m = attest_boot(hub, PKG, FIX, extra_files=[ident.manners_path],
+                    signer=signer)
+    assert "MANNERS.md" in m                 # conduct hash registered per spec
+    assert verify_manifest(m, PKG, FIX, extra_files=[ident.manners_path]) == []
+    ev = [e for e in hub.audit.read() if e["kind"] == "boot.attestation"][0]
+    assert ev["signed"] is True
+    v = Ed25519Verifier(signer.public_key_bytes())
+    assert v.verify_bytes(_json.dumps(m, sort_keys=True).encode(),
+                          ev["manifest_signature"])

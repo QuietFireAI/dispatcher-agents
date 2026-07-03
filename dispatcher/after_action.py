@@ -119,7 +119,12 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
               f"dedupe hits: {k['dedupe_hits']}, rejects: {k['rejects']}",
               f"- queue health: {k['queue_health']}",
               f"- drift: {k['drift']}",
-              "", "## manners re-injections",
-              "- NOT INSTRUMENTED in runtime (no manners events emitted); "
-              "declared per schema, not estimated"]
+              "", "## manners re-injections"]
+    manners = [e for e in run_events if e["kind"] == "manners.reinjection"]
+    if manners:
+        lines.append(f"- count: {len(manners)}")
+        for m in manners:
+            lines.append(f"- {m.get('trigger')} @ {m.get('position') or 'unstated'}")
+    else:
+        lines.append("- none on log this run (instrumented; zero fired)")
     return "\n".join(lines) + "\n"

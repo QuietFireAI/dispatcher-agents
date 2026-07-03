@@ -31,11 +31,18 @@ class Reject(Exception):
 class Hub:
     def __init__(self, routes: Routes, audit: AuditLog,
                  signature_verifier: Optional[Callable[[Envelope], bool]] = None,
-                 human_notifier: Optional[Callable[[str, dict], None]] = None):
+                 human_notifier: Optional[Callable[[str, dict], None]] = None,
+                 loop_threshold: int = 20):
+        # loop_threshold: max envelopes per (client_context_id, intent) before
+        # the loop suspends into clarification. 20 is PROVISIONAL AND
+        # ARBITRARY (no spec number, no empirical basis) — after-action data
+        # sets the real value, same discipline as MANNERS N=10.
         self.routes = routes
         self.audit = audit
         self.verify_sig = signature_verifier or (lambda env: False)
         self.human_notifier = human_notifier
+        self.loop_threshold = loop_threshold
+        self.loop_counts: dict[tuple, int] = {}
         self.handlers: dict[str, Callable[[Envelope], None]] = {}
         self.seen_ids: set[str] = set()
         self.seq: dict[str, int] = {}
@@ -82,6 +89,18 @@ class Hub:
         self.spoke_traces.append(rec)
         self.audit.append("spoke.trace", rec)
 
+    MANNERS_TRIGGERS = ("phase_gate", "post_compaction", "turn_backstop")
+
+    def manners_reinjection(self, trigger: str, position: str = "") -> None:
+        """MANNERS.md anti-fade mechanism, instrumented: phase_gate and
+        post_compaction are CONSTANTS; turn_backstop is the N=10 PROVISIONAL
+        backstop. Counts and positions feed after-action fade-tracking."""
+        if trigger not in self.MANNERS_TRIGGERS:
+            raise ValueError(f"unknown manners trigger {trigger!r}; "
+                             f"constants are {self.MANNERS_TRIGGERS}")
+        self.audit.append("manners.reinjection",
+                          {"trigger": trigger, "position": position})
+
     # ------------------------------------------------------------- transport
     def escalate(self, queue: str, record: dict) -> dict:
         """Spokes raise escalations into hub queues (they are not routes —
@@ -109,6 +128,22 @@ class Hub:
             self.audit.append("dedupe.hit", {"envelope_id": env.envelope_id})
             return {"status": "duplicate", "processed": False,
                     "envelope_id": env.envelope_id}
+        # 0.5 loop protection — per (context, intent) threshold, suspend +
+        # clarification (core protocol mechanics). Counts real attempts only:
+        # rides after dedupe so ack-loss retries never inflate the count.
+        key = (env.client_context_id, env.intent)
+        self.loop_counts[key] = self.loop_counts.get(key, 0) + 1
+        if self.loop_counts[key] > self.loop_threshold:
+            self.queues["clarification.request"].append(env.to_record())
+            self.audit.append("loop.suspended",
+                              {"client_context_id": env.client_context_id,
+                               "intent": env.intent,
+                               "count": self.loop_counts[key],
+                               "threshold": self.loop_threshold,
+                               "envelope_id": env.envelope_id})
+            return {"status": "suspended", "queue": "clarification.request",
+                    "reason": f"loop threshold {self.loop_threshold} exceeded "
+                              f"for {key}", "envelope_id": env.envelope_id}
         # 1. schema
         errs = env.validate_schema()
         if errs:

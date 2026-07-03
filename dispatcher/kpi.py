@@ -101,14 +101,19 @@ def compute_kpis(events: list[dict]) -> dict:
                                 "missing": ["playbook.step", "playbook.proof"]},
         "heartbeat_uptime": {"computable": False,
                              "missing": ["external watchdog observations"]},
-        "loop_suspensions": {"computable": False,
-                             "missing": ["loop.suspended"]},
     }
 
     return {
         "ack_integrity": ack_integrity,
         "routing_latency": routing_latency,
         "sequence_gap_incidents": gap_incidents,
+        "loop_suspensions": len(by_kind["loop.suspended"]),
+        "manners_reinjections": {
+            "count": len(by_kind["manners.reinjection"]),
+            "by_trigger": {t: sum(1 for e in by_kind["manners.reinjection"]
+                                  if e.get("trigger") == t)
+                           for t in ("phase_gate", "post_compaction",
+                                     "turn_backstop")}},
         "dedupe_hits": len(by_kind["dedupe.hit"]),
         "rejects": len(by_kind["reject"]),
         "queue_health": queue_health,

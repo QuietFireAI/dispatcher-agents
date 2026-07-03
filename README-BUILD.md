@@ -63,7 +63,12 @@ gate) — every claim a passing test in tests/test_day3.py:
 
 Install: pip install -e .  plus  pip install -e <open-mind clone>.
 Test: python -m pytest tests/
-Day 4: end-to-end demo (stub spokes, P11 on the runtime), after-action
-report per AFTER_ACTION.md, EVIDENCE.md entries, hub README, PUSH per
-PAT protocol. Deferred from Day 3, stated plainly: repo split prep,
-thought-cycle packaging fix (P2).
+Day 4 (demo/, after_action.py, hub.escalate): P11 end-to-end on the real
+identity, after-action per schema from log only, escalation transport
+instrumented and KPI-computed. Day 5 (final): loop protection per
+(context,intent) — threshold 20 PROVISIONAL AND ARBITRARY, retries never
+counted; manners re-injection instrumentation (constant triggers enforced,
+backstop named PROVISIONAL); Ed25519 authority tier (verifier cannot forge)
++ signable boot manifest registering MANNERS.md hash per its own spec.
+`cryptography` is the package's ONLY dependency and only for Ed25519 —
+HMAC deployments stay zero-dep. Every claim: tests/test_day3.py.
