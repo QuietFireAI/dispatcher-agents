@@ -17,6 +17,39 @@ Read the [MANIFESTO](./MANIFESTO.md) for the full architecture. Read [EVIDENCE.m
 
 Enterprise extension (referenced, not required): [TelsonBase](https://github.com/QuietFireAI/TelsonBase) — permissions, audit, trust levels.
 
+## How the tiers fit (the whole org, one sentence each)
+
+- **Instruction tier** — the dispatcher runtime in this repo: a closed-track
+  message hub where every (from → intent → to) tuple is enforced at send time,
+  acks exist only after persist-and-delivery, and the audit log is the sole
+  source of every KPI and after-action report.
+- **Detection tier** — the six pillars above, wired into the runtime as
+  seams: before-turn at turn entry, open-mind's Comparator on the hub's own
+  reasoning-vs-action artifacts, agent-open-mind on every spoke trace
+  (absent thought = tainted, never silently admitted), sleep-marks at crew
+  change, splitvantage for cross-model review.
+- **Structural tier** — TelsonBase: allow/gate/block per tool call, below
+  the model, for deployments that need enforcement rather than detection.
+
+Instruction < detection < structural. The org is the hierarchy.
+
+## Runtime (in this repo)
+
+`dispatcher/` — the hub: envelope schema with enforced confidence vocabulary,
+tuple-legality routing, append-only fsynced audit log, HMAC authority
+signatures, boot attestation (hash manifest, fail-closed verification), JIT
+priority classes with live-hold siding, identity side-load loader, KPI
+computation from the log only, after-action generation per schema. Tests are
+doctrine as executable assertions, run against a real 35-route vertical
+track — see README-BUILD.md for the claim-to-test map and EVIDENCE-runtime.md
+for the evidence classes.
+
+## Verticals (identity side-loads)
+
+| Vertical | Repo | Status |
+|---|---|---|
+| Real-estate listing agent | [listing-agents](https://github.com/QuietFireAI/listing-agents) | v0.17 — 21 agents, 15 playbooks, 35 ratified route tuples, DRAFT priority classes; runtime-driven in the P11 end-to-end demo. First of several. |
+
 ## This Repo
 
 This is the hub: the manifesto, the claims ledger, and the findings.
@@ -27,8 +60,14 @@ This is the hub: the manifesto, the claims ledger, and the findings.
 
 ## Status
 
-v0.1, June 2026. All six pillars exist as code with reviewed documentation. The stack's quantitative claims are classified in EVIDENCE.md; the highest-priority open item is the A/B validation of the [context-load finding](./findings/FINDING_context_load_replaces_reconstruction.md).
+v0.2, July 2026. All six pillars exist as code with reviewed documentation,
+and the dispatcher runtime exists with a green doctrine-test suite against a
+real vertical track. The stack's quantitative claims are classified in
+EVIDENCE.md; highest-priority open items are the A/B validation of the
+[context-load finding](./findings/FINDING_context_load_replaces_reconstruction.md)
+and the tuple-enforcement A/B (HYPOTHESIS class, protocol in the runtime's
+after-action schema).
 
 ## License
 
-MIT — QuietFireAI / [dispatcheragents.com](https://dispatcheragents.com)
+MIT — [QuietFireAI](https://github.com/QuietFireAI)

@@ -1,0 +1,221 @@
+"""Day 3 doctrine as executable assertions: attestation, real signatures,
+JIT priority + siding, identity side-load loader, ingestion-time tainting.
+Loader/siding tested against the REAL v0.16 listing identity where present."""
+import os, sys, shutil, pytest
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from dispatcher.core import Envelope, Routes, AuditLog
+from dispatcher.hub import Hub
+from dispatcher.attestation import build_manifest, verify_manifest, attest_boot
+from dispatcher.signatures import HmacSigner
+from dispatcher.priority import SidingScheduler
+from dispatcher.loader import load_identity
+
+FIX = os.path.join(os.path.dirname(__file__), "routes_fixture.json")
+PKG = os.path.join(os.path.dirname(__file__), "..", "dispatcher")
+LISTING = os.environ.get("IDENTITY_DIR", "/home/claude/listing")  # real identity when available
+
+
+def make_hub(tmp_path, verifier=None):
+    hub = Hub(Routes(FIX), AuditLog(str(tmp_path / "audit.jsonl")), verifier)
+    hub.register("02", lambda env: None)
+    return hub
+
+
+def env(frm="01", to="02", intent="lead.captured", **kw):
+    return Envelope(from_agent=frm, to_agent=to, intent=intent,
+                    client_context_id=kw.pop("ctx", "ctx-1"),
+                    payload=kw.pop("payload", {}),
+                    provenance={"source": "test", "captured_at": "now",
+                                "verbatim_available": True}, **kw)
+
+
+# ------------------------------------------------------- ingestion-time taint
+def test_absent_thought_tainted_at_ingestion_not_only_at_analysis(tmp_path):
+    hub = make_hub(tmp_path)
+    hub.ingest_spoke_trace("07", "env-1", thought="  ", result="done")
+    # flagged IMMEDIATELY — before any analysis runs
+    assert any(r.get("tainted") for r in hub.queues["integrity.violation"])
+    assert "agentopenmind.tainted" in [e["kind"] for e in hub.audit.read()]
+
+
+def test_taint_not_double_queued_by_analysis(tmp_path):
+    from dispatcher.analysis import score_spoke_traces
+    hub = make_hub(tmp_path)
+    hub.ingest_spoke_trace("07", "env-1", thought="", result="done")
+    score_spoke_traces(hub)
+    taints = [e for e in hub.audit.read() if e["kind"] == "agentopenmind.tainted"]
+    assert len(taints) == 1
+    assert len([r for r in hub.queues["integrity.violation"]
+                if r.get("tainted")]) == 1
+
+
+# ------------------------------------------------------------------ attestation
+def test_boot_attestation_logged_and_verifies_clean(tmp_path):
+    hub = make_hub(tmp_path)
+    m = attest_boot(hub, PKG, FIX)
+    assert "boot.attestation" in [e["kind"] for e in hub.audit.read()]
+    assert verify_manifest(m, PKG, FIX) == []
+
+
+def test_tampered_file_named_in_violation(tmp_path):
+    pkg = tmp_path / "pkg"; pkg.mkdir()
+    f = pkg / "mod.py"; f.write_text("x = 1\n")
+    routes = tmp_path / "routes.json"; routes.write_text("{}")
+    m = build_manifest(str(pkg), str(routes))
+    f.write_text("x = 2  # tampered\n")
+    v = verify_manifest(m, str(pkg), str(routes))
+    assert len(v) == 1 and "mod.py" in v[0] and "mismatch" in v[0]
+
+
+def test_absent_manifest_fails_closed(tmp_path):
+    assert "absent" in verify_manifest({}, PKG, FIX)[0]
+
+
+def test_unattested_new_file_named(tmp_path):
+    pkg = tmp_path / "pkg"; pkg.mkdir()
+    (pkg / "mod.py").write_text("x = 1\n")
+    routes = tmp_path / "routes.json"; routes.write_text("{}")
+    m = build_manifest(str(pkg), str(routes))
+    (pkg / "smuggled.py").write_text("evil = True\n")
+    v = verify_manifest(m, str(pkg), str(routes))
+    assert len(v) == 1 and "smuggled.py" in v[0] and "unattested" in v[0]
+
+
+# ------------------------------------------------------------------ signatures
+def test_signed_authority_intent_acks(tmp_path):
+    signer = HmacSigner(b"k" * 32)
+    hub = make_hub(tmp_path, verifier=signer.verifier())
+    hub.register("05", lambda e: None)
+    e = env(frm="human", to="05", intent="listing.change.authorized")
+    signer.sign(e)
+    assert hub.send(e)["status"] == "ack"
+
+
+def test_forged_signature_rejected_and_flagged(tmp_path):
+    signer = HmacSigner(b"k" * 32)
+    hub = make_hub(tmp_path, verifier=signer.verifier())
+    hub.register("05", lambda e: None)
+    e = env(frm="human", to="05", intent="listing.change.authorized")
+    e.signature = "0" * 64                        # forged
+    r = hub.send(e)
+    assert r["status"] == "reject"
+    assert len(hub.queues["integrity.violation"]) == 1
+
+
+def test_signature_binds_fields_tamper_after_sign_fails(tmp_path):
+    signer = HmacSigner(b"k" * 32)
+    hub = make_hub(tmp_path, verifier=signer.verifier())
+    hub.register("05", lambda e: None)
+    e = env(frm="human", to="05", intent="listing.change.authorized",
+            payload={"price": 500000})
+    signer.sign(e)
+    e.payload["price"] = 400000                   # tampered after signing
+    assert hub.send(e)["status"] == "reject"
+
+
+def test_absent_signature_still_rejected(tmp_path):
+    signer = HmacSigner(b"k" * 32)
+    hub = make_hub(tmp_path, verifier=signer.verifier())
+    hub.register("05", lambda e: None)
+    r = hub.send(env(frm="human", to="05", intent="listing.change.authorized"))
+    assert r["status"] == "reject"
+
+
+# ------------------------------------------------------------- JIT + siding
+CLASSES = {"P11": 3, "P05": 2, "P12": 4}
+
+
+def test_higher_class_sides_lower_holder_live_then_resumes(tmp_path):
+    audit = AuditLog(str(tmp_path / "a.jsonl"))
+    s = SidingScheduler(audit, CLASSES)
+    assert s.request_segment("run-mkt", "P12", spoke="11")["granted"]
+    r = s.request_segment("run-halt", "P05", spoke="11")   # Class 2 arrives
+    assert r["granted"] and r["sided"] == "run-mkt"        # junk takes siding
+    out = s.release_segment("run-halt", "11")
+    assert out["resumed"] == "run-mkt"                     # auto-resume, live
+    kinds = [e["kind"] for e in audit.read()]
+    assert "siding.hold" in kinds and "siding.resume" in kinds
+
+
+def test_lower_class_waits_never_preempts(tmp_path):
+    s = SidingScheduler(AuditLog(str(tmp_path / "a.jsonl")), CLASSES)
+    s.request_segment("run-halt", "P05", spoke="11")
+    r = s.request_segment("run-mkt", "P12", spoke="11")
+    assert r["granted"] is False and r["held_behind"] == "run-halt"
+
+
+def test_class_beats_arrival_order_on_resume(tmp_path):
+    s = SidingScheduler(AuditLog(str(tmp_path / "a.jsonl")), CLASSES)
+    s.request_segment("holder", "P05", spoke="11")
+    s.request_segment("late-junk", "P12", spoke="11")      # arrives first
+    s.request_segment("sched", "P11", spoke="11")          # arrives second
+    out = s.release_segment("holder", "11")
+    assert out["resumed"] == "sched"                       # class 3 beats 4
+
+
+def test_unclassified_playbook_refused(tmp_path):
+    s = SidingScheduler(AuditLog(str(tmp_path / "a.jsonl")), CLASSES)
+    with pytest.raises(KeyError):
+        s.request_segment("run-x", "P99", spoke="11")
+
+
+# ------------------------------------------------------------------- loader
+needs_listing = pytest.mark.skipif(not os.path.isdir(LISTING),
+                                   reason="real v0.16 identity not extracted")
+
+
+@needs_listing
+def test_loads_real_listing_identity():
+    ident = load_identity(LISTING)
+    assert ident.n_routes == 35
+    assert len(ident.agents) == 21
+    assert ident.priority_classes and len(ident.priority_classes) == 15
+    assert "pending" in ident.priority_status.lower() \
+        or "draft" in ident.priority_status.lower()
+    assert any("DRAFT" in w or "pending" in w for w in ident.warnings)
+
+
+@needs_listing
+def test_loaded_identity_drives_hub_and_scheduler(tmp_path):
+    ident = load_identity(LISTING)
+    hub = Hub(Routes(ident.routes_path),
+              AuditLog(str(tmp_path / "a.jsonl")), None)
+    hub.register("02", lambda e: None)
+    assert hub.send(env())["status"] == "ack"              # real track routes
+    s = SidingScheduler(hub.audit, ident.priority_classes)
+    assert s.request_segment("r1", "P11", spoke="06")["granted"]
+
+
+def test_missing_routes_refuses_to_load(tmp_path):
+    d = tmp_path / "ident"; d.mkdir()
+    (d / "01-thing").mkdir(); (d / "01-thing" / "SKILL.md").write_text("x")
+    with pytest.raises(FileNotFoundError):
+        load_identity(str(d))
+
+
+def test_agent_dir_without_skill_is_violation_not_skip(tmp_path):
+    d = tmp_path / "ident"; d.mkdir()
+    (d / "routes.json").write_text(
+        '{"vertical":"t","routes":[{"intent":"a","senders":["01"],"receivers":["02"]}]}')
+    (d / "01-thing").mkdir()                               # no SKILL.md
+    with pytest.raises(ValueError, match="SKILL.md absent"):
+        load_identity(str(d))
+
+
+# ------------------------------------------------------------ e2e demo (Day 4)
+@needs_listing
+def test_p11_demo_end_to_end(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "demo"))
+    import run_p11_demo
+    path, steps, notified = run_p11_demo.run(outdir=str(tmp_path / "aa"))
+    report = open(path).read()
+    assert all(s["status"] == "ack" for s in steps)
+    assert len(notified) == 1                       # HOT lead reached a human
+    for section in ("## run", "## outcome", "## steps", "## gates",
+                    "## deviations", "## escalations", "## errors",
+                    "## kpis", "## manners re-injections"):
+        assert section in report                    # full AFTER_ACTION schema
+    assert "TRIGGERED" in report                    # both gates fired
+    assert "NOT INSTRUMENTED" in report             # declared, not faked
+    assert "'computable': True" in report           # escalation transport real

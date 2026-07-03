@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dispatcher-agents"
+version = "0.3.0"
+description = "TelsonBase dispatcher runtime: closed-track message hub with doctrine-enforced acks, idempotency, signatures, and restricted-speed holds"
+requires-python = ">=3.10"
+# open-mind (pillar) is required by dispatcher.analysis. Not on PyPI.
+# Install from source BEFORE running tests/test_analysis_kpi.py:
+#   pip install -e <path-to-open-mind-clone>
+# NOTE: dispatcher.analysis requires the comparator at uncertainty weight 0.3
+# with the broadened confidence regex. As of Day 2 that version exists only in
+# the local ported clone — the live QuietFireAI/open-mind repo still carries
+# 0.2 until the Day 4 push lands. A test pins the ported version and will
+# FAIL LOUDLY against the stale pillar. That is intended.
+
+[tool.setuptools]
+packages = ["dispatcher"]
