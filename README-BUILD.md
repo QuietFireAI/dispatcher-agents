@@ -81,3 +81,11 @@ runs NAMED; territories implemented per §100-110 - signed transfer,
 fail-closed verify, persist-before-adopt, sequence continues gapless
 across hubs, release only on receiver ack. Nothing in DISPATCHER_CORE
 remains unimplemented except conduct-efficacy testing, which is empirical.
+
+Final wiring (dispatcher/pillars.py): all six pillars imported from their
+packages and seam-bound - before-turn (turn entry), open-mind (reflections),
+agent-open-mind (taint gate, pillar function is the single source),
+pre-response-selfcheck (exit gate, FAIL holds envelope), sleep-marks
+(territory transfer carry/restore), splitvantage (second opinion on
+flagged drift). Install all six: pip install -e <each pillar clone>.
+Unarmed gates audit their own absence. 57 tests.

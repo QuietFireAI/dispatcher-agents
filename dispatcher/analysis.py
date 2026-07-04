@@ -60,7 +60,8 @@ def score_spoke_traces(hub, drift_threshold: float = 0.4) -> list[dict]:
     for trace in hub.spoke_traces:
         thought = (trace.get("thought") or "").strip()
         base = {"agent": trace["agent"], "envelope_id": trace["envelope_id"]}
-        if not thought:
+        from agent_open_mind import taint_check
+        if taint_check(trace)["tainted"]:
             rec = {**base, "tainted": True,
                    "reason": "absent thought trace - tainted result, held for review"}
             if not trace.get("tainted"):

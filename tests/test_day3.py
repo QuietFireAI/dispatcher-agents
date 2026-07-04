@@ -398,3 +398,71 @@ def test_unsigned_or_forged_transfer_refused_contexts_not_adopted(tmp_path):
     assert b.queues["integrity.violation"]                # held for review
     with pytest.raises(ValueError):
         confirm_release(a, ["ctx-1"], res)                # sender keeps it
+
+
+# ------------------------------------------- six-pillar wiring (final drop)
+def test_before_turn_pillar_runs_at_turn_entry(tmp_path):
+    from dispatcher.pillars import before_turn_check
+    hub = make_hub(tmp_path)
+    hub.send(env())
+    rec = before_turn_check(hub)
+    assert rec["thoughts_reviewed"] >= 1          # read its own reflections
+    assert len(rec["questions"]) == 4             # pillar's question set
+    assert "beforeturn.check" in [e["kind"] for e in hub.audit.read()]
+
+
+def test_taint_gate_is_the_pillar_not_a_copy(tmp_path):
+    import dispatcher.hub as h, inspect
+    src = inspect.getsource(h.Hub.ingest_spoke_trace)
+    assert "taint_check" in src                   # pillar import, single source
+    hub = make_hub(tmp_path)
+    hub.ingest_spoke_trace("07", "e1", thought="", result="x")
+    assert any(r.get("tainted") for r in hub.queues["integrity.violation"])
+
+
+def test_exit_gate_blocks_on_fail_verdict(tmp_path):
+    from dispatcher.pillars import exit_gate
+    hub = make_hub(tmp_path)
+    e = env(payload={"msg": "Your offer was definitely accepted."})
+    fail_model = lambda prompt: "FAIL\nLINE: definitely accepted\nFIX: verify before asserting"
+    r = exit_gate(hub, e, model=fail_model)
+    assert r["armed"] and r["passed"] is False
+    assert any(i.get("held_by") == "pre-response-selfcheck"
+               for i in hub.queues["clarification.request"])
+    pass_model = lambda prompt: "PASS"
+    assert exit_gate(hub, env(payload={"msg": "ok"}), model=pass_model)["passed"]
+
+
+def test_exit_gate_unarmed_is_audited_never_silent(tmp_path):
+    from dispatcher.pillars import exit_gate
+    hub = make_hub(tmp_path)
+    r = exit_gate(hub, env(), model=None)
+    assert r["armed"] is False
+    assert "selfcheck.unarmed" in [e["kind"] for e in hub.audit.read()]
+
+
+def test_sleepmark_rides_territory_transfer(tmp_path):
+    from dispatcher.signatures import Ed25519Signer, Ed25519Verifier
+    from dispatcher.territory import build_transfer, receive_transfer
+    signer = Ed25519Signer()
+    a = make_hub(tmp_path)
+    a.send(env())
+    b = Hub(Routes(FIX), AuditLog(str(tmp_path / "b.jsonl")), None)
+    rec = build_transfer(a, ["ctx-1"], signer)
+    assert rec["sleepmark"]["context_summary"].startswith("territory transfer")
+    assert receive_transfer(b, rec,
+                            Ed25519Verifier(signer.public_key_bytes()))["status"] == "ack"
+    kinds_a = [e["kind"] for e in a.audit.read()]
+    kinds_b = [e["kind"] for e in b.audit.read()]
+    assert "sleepmark.captured" in kinds_a and "sleepmark.restored" in kinds_b
+
+
+def test_splitvantage_second_opinion_audited(tmp_path):
+    from dispatcher.pillars import second_opinion
+    hub = make_hub(tmp_path)
+    d = second_opinion(hub, "route this lead?",
+                       {"model": "a", "response": "It might possibly be WARM.", "thinking": ""},
+                       {"model": "b", "response": "WARM.", "thinking": ""},
+                       envelope_id="e9")
+    assert d["uncertainty_delta"] == 2            # word-boundary counting live
+    assert "splitvantage.review" in [e["kind"] for e in hub.audit.read()]

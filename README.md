@@ -23,16 +23,19 @@ Enterprise extension (referenced, not required): [TelsonBase](https://github.com
   message hub where every (from → intent → to) tuple is enforced at send time,
   acks exist only after persist-and-delivery, and the audit log is the sole
   source of every KPI and after-action report.
-- **Detection tier** - the six pillars. Two run IN the runtime with
-  analysis: open-mind's Comparator on the hub's own reasoning-vs-action
-  artifacts, and agent-open-mind on every spoke trace (absent thought =
-  tainted, never silently admitted). One is a seam awaiting analysis:
-  before-turn (the hub reads and logs its own prior state at turn entry;
-  no pillar scoring wired yet). Three operate at process level, not in
-  the runtime: pre-response-selfcheck (exit-gate on drafted output),
-  sleep-marks (crew-change state capture), splitvantage (cross-model
-  review). Wiring status is stated per pillar because "six pillars, all
-  wired" would be false, and this README does not get to be false.
+- **Detection tier** - the six pillars, each imported from its own
+  package and bound to a named runtime seam (dispatcher/pillars.py):
+  before-turn at turn entry (hub re-reads its own recent reflections and
+  answers the pillar's check questions, audited); open-mind's Comparator
+  on every hub reasoning-vs-action artifact; agent-open-mind's taint gate
+  at spoke-trace ingestion (the pillar function IS the gate - absent
+  thought = tainted, never silently admitted); pre-response-selfcheck as
+  the exit gate on outbound text (FAIL verdict holds the envelope in
+  clarification); sleep-marks riding every territory transfer (the
+  outgoing crew's reasoning state restores on the receiving hub);
+  splitvantage as the second-opinion diff on drift-flagged decisions.
+  Two gates (selfcheck, splitvantage) need reviewer models - deployment
+  config; UNARMED IS AUDITED, never silent. Every binding has a test.
 - **Structural tier** - TelsonBase: allow/gate/block per tool call, below
   the model, for deployments that need enforcement rather than detection.
 

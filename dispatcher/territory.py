@@ -39,6 +39,10 @@ def build_transfer(hub, contexts: list[str], signer,
         "attested_manifest": manifest or {},
     }
     record["open_items"] = {q: v for q, v in record["open_items"].items() if v}
+    # crew change carries the outgoing crew's reasoning state (sleep-marks)
+    from .pillars import capture_sleepmark
+    record["sleepmark"] = capture_sleepmark(
+        hub, context_summary=f"territory transfer of {contexts}")["mark"]
     record["signature"] = signer.sign_bytes(_canonical(record))
     hub.audit.append("territory.transfer.sent",
                      {"contexts": contexts,
@@ -61,6 +65,9 @@ def receive_transfer(hub, record: dict, verifier) -> dict:
     hub.audit.append("territory.transfer.received",
                      {"contexts": record["contexts"],
                       "open_item_queues": list(record["open_items"])})
+    if record.get("sleepmark"):
+        from .pillars import restore_sleepmark
+        restore_sleepmark(hub, record["sleepmark"])
     for ctx, meta in record["contexts"].items():
         hub.seq[ctx] = meta["sequence_hwm"]
     for q, items in record["open_items"].items():

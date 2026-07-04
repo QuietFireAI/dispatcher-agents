@@ -77,9 +77,11 @@ class Hub:
         results; hub centrality makes this the monitoring point."""
         rec = {"agent": agent_id, "envelope_id": envelope_id,
                "thought": thought, "result": result}
-        if not (thought or "").strip():
-            # Absent Thoughts = Tainted Result - structural, at the moment of
-            # ingestion, not deferred to whenever analysis happens to run.
+        from agent_open_mind import taint_check   # pillar = single source
+        gate = taint_check(rec)
+        if gate["tainted"]:
+            # structural, at the moment of ingestion, not deferred to
+            # whenever analysis happens to run.
             rec["tainted"] = True
             flag = {"agent": agent_id, "envelope_id": envelope_id,
                     "tainted": True,
