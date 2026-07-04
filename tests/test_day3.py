@@ -494,3 +494,22 @@ def test_kpi_gate_passes_clean_run_and_names_slept_gates(tmp_path):
     assert len(v) == 1 and "taint gate slept" in v[0]            # 1 caught -> named
     v2 = gate(hub.audit.read(), selfcheck_bait_expected=1)       # bait never sent
     assert len(v2) == 1 and "exit gate slept" in v2[0]
+
+
+def test_baseline_rerun_does_not_poison_the_gate(tmp_path, monkeypatch):
+    """Manual says rerun 3x; append-only audit made run 2 fail the gate with
+    phantom sequence gaps (hard-test find). Each run now gets its own log."""
+    monkeypatch.chdir(tmp_path)
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "demo"))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    import baseline_run
+    from kpi_gate import gate
+    import glob, json as _json
+    for _ in range(3):
+        baseline_run.run(outdir=str(tmp_path / "b"))
+    logs = glob.glob(str(tmp_path / "b" / "audit-*.jsonl"))
+    logs = [l for l in logs if "audit-b-" not in l]
+    assert len(logs) == 3                          # three self-contained logs
+    for log in logs:
+        events = [_json.loads(l) for l in open(log) if l.strip()]
+        assert gate(events, taints_expected=1, selfcheck_bait_expected=1) == []

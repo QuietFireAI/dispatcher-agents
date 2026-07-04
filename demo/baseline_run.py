@@ -54,9 +54,16 @@ def stub_model_b(prompt: str) -> dict:
 
 def run(outdir="baseline-out"):
     os.makedirs(outdir, exist_ok=True)
+    # one self-contained audit file PER RUN: AuditLog is append-only by
+    # design, so reusing a filename doubles the log and the KPI gate fails
+    # on phantom sequence gaps (found by hard test: manual says rerun 3x,
+    # second run tripped the gate). run_tag makes reruns safe and each
+    # run's log individually gate-able.
+    run_tag = uuid.uuid4().hex[:8]
+    audit_path = os.path.join(outdir, f"audit-{run_tag}.jsonl")
     signer = Ed25519Signer()                       # human-owner authority
     hub = Hub(Routes(os.path.join(BASE, "routes.json")),
-              AuditLog(os.path.join(outdir, "audit.jsonl")),
+              AuditLog(audit_path),
               signature_verifier=Ed25519Verifier(
                   signer.public_key_bytes()).verifier(),
               selfcheck_model=stub_selfcheck,
@@ -117,7 +124,7 @@ def run(outdir="baseline-out"):
 
     # sleep-marks: crew change via signed territory transfer to hub B
     hub_b = Hub(Routes(os.path.join(BASE, "routes.json")),
-                AuditLog(os.path.join(outdir, "audit-b.jsonl")))
+                AuditLog(os.path.join(outdir, f"audit-b-{run_tag}.jsonl")))
     rec = build_transfer(hub, ["diag-1"], signer)
     ack = receive_transfer(hub_b, rec,
                            Ed25519Verifier(signer.public_key_bytes()))
@@ -140,7 +147,7 @@ def run(outdir="baseline-out"):
                       "sleepmark.captured", "splitvantage.review")}
     print("pillar event counts (all six must be nonzero):", pillar_events)
     print(f"selfcheck held envelope: {r3['status']} ({r3.get('reason')})")
-    print(f"after-action: {rp}\nkpis: {kp}")
+    print(f"after-action: {rp}\nkpis: {kp}\naudit: {audit_path}")
     assert all(v > 0 for v in pillar_events.values()), \
         "A PILLAR DID NOT FIRE - no dispatcher agents"
     return pillar_events, kpis
