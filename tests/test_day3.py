@@ -169,7 +169,7 @@ def test_loads_real_listing_identity():
     ident = load_identity(LISTING)
     assert ident.n_routes == 35
     assert len(ident.agents) == 21
-    assert ident.priority_classes and len(ident.priority_classes) == 17
+    assert ident.priority_classes and len(ident.priority_classes) == 20
     assert "pending" in ident.priority_status.lower() \
         or "draft" in ident.priority_status.lower()
     assert any("DRAFT" in w or "pending" in w for w in ident.warnings)
