@@ -481,3 +481,16 @@ def test_baseline_run_all_six_pillars_fire(tmp_path, monkeypatch):
     assert all(v > 0 for v in pillar_events.values())
     assert kpis["ack_integrity"]["integrity_incidents"] == 0
     assert kpis["playbook_completion"]["rate"] == 1.0
+
+
+def test_kpi_gate_passes_clean_run_and_names_slept_gates(tmp_path):
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    from kpi_gate import gate
+    hub = make_hub(tmp_path)
+    hub.send(env())
+    hub.ingest_spoke_trace("07", "e1", thought="", result="x")   # 1 planted
+    assert gate(hub.audit.read(), taints_expected=1) == []       # caught -> pass
+    v = gate(hub.audit.read(), taints_expected=2)                # claim 2 planted
+    assert len(v) == 1 and "taint gate slept" in v[0]            # 1 caught -> named
+    v2 = gate(hub.audit.read(), selfcheck_bait_expected=1)       # bait never sent
+    assert len(v2) == 1 and "exit gate slept" in v2[0]

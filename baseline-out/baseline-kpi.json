@@ -1,0 +1,68 @@
+{
+ "ack_integrity": {
+  "acks": 3,
+  "acks_backed_by_persist": 3,
+  "rate": 1.0,
+  "integrity_incidents": 0
+ },
+ "routing_latency": {
+  "n": 3,
+  "max_s": 0.0013403892517089844,
+  "p50_s": 0.0013146400451660156
+ },
+ "sequence_gap_incidents": 0,
+ "loop_suspensions": 0,
+ "manners_reinjections": {
+  "count": 0,
+  "by_trigger": {
+   "phase_gate": 0,
+   "post_compaction": 0,
+   "turn_backstop": 0
+  }
+ },
+ "dedupe_hits": 0,
+ "rejects": 0,
+ "queue_health": {
+  "dead_letter": 0,
+  "dead_letter_rate": 0.0,
+  "holds_clarification": 0,
+  "integrity_violations": 0,
+  "tainted_spoke_traces": 1,
+  "siding_holds": 0,
+  "siding_resumes": 0
+ },
+ "escalation_transport_time": {
+  "computable": false,
+  "missing": [
+   "escalation.raised/human.notified pairs"
+  ]
+ },
+ "playbook_completion": {
+  "computable": true,
+  "started": 1,
+  "completed": 1,
+  "rate": 1.0,
+  "incomplete_runs": []
+ },
+ "heartbeat": {
+  "computable": true,
+  "beats": 3,
+  "span_s": 0.025091886520385742,
+  "max_gap_s": 0.014316558837890625
+ },
+ "drift": {
+  "hub_reflections_analyzed": 4,
+  "hub_reflections_flagged": 1,
+  "spoke_traces_scored": 1,
+  "spoke_traces_flagged": 0
+ },
+ "not_computable": {},
+ "heartbeat_watchdog": {
+  "computable": true,
+  "beats": 3,
+  "span_s": 0.025091886520385742,
+  "max_gap_s": 0.014316558837890625,
+  "gap_incidents": 0,
+  "cadence_s": 0.01
+ }
+}
