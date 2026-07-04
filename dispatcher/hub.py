@@ -32,7 +32,14 @@ class Hub:
     def __init__(self, routes: Routes, audit: AuditLog,
                  signature_verifier: Optional[Callable[[Envelope], bool]] = None,
                  human_notifier: Optional[Callable[[str, dict], None]] = None,
-                 loop_threshold: int = 20):
+                 loop_threshold: int = 20,
+                 selfcheck_model=None,
+                 crosspol_models: tuple | None = None):
+        # selfcheck_model: reviewer callable for the pre-response-selfcheck
+        # exit gate on every outbound delivery. crosspol_models: pair of
+        # callables (prompt -> {model,response,thinking}) for splitvantage
+        # second opinions on drift-flagged reflections. Both are deployment
+        # config; UNARMED IS AUDITED AT BOOT, once, never silently off.
         # loop_threshold: max envelopes per (client_context_id, intent) before
         # the loop suspends into clarification. 20 is PROVISIONAL AND
         # ARBITRARY (no spec number, no empirical basis) - after-action data
@@ -43,6 +50,16 @@ class Hub:
         self.human_notifier = human_notifier
         self.loop_threshold = loop_threshold
         self.loop_counts: dict[tuple, int] = {}
+        self.selfcheck_model = selfcheck_model
+        self.crosspol_models = crosspol_models
+        if selfcheck_model is None:
+            self.audit.append("selfcheck.unarmed",
+                              {"scope": "boot", "reason": "no reviewer model "
+                               "configured - exit gate off, declared not silent"})
+        if crosspol_models is None:
+            self.audit.append("splitvantage.unarmed",
+                              {"scope": "boot", "reason": "no reviewer pair "
+                               "configured - second opinion off, declared not silent"})
         self.handlers: dict[str, Callable[[Envelope], None]] = {}
         self.seen_ids: set[str] = set()
         self.seq: dict[str, int] = {}
@@ -62,6 +79,8 @@ class Hub:
                  "open_holds": {q: len(v) for q, v in self.queues.items() if v}}
         self.audit.append("turn.start", {"read_prior_state": True,
                                          "open_holds": state["open_holds"]})
+        from .pillars import before_turn_check
+        before_turn_check(self)
         return state
 
     def _reflect(self, envelope_id: str, thought: str, action: str) -> None:
@@ -177,6 +196,16 @@ class Hub:
         env.sequence = self.seq[env.client_context_id] = \
             self.seq.get(env.client_context_id, 0) + 1
         self.audit.append("envelope.persisted", env.to_record())
+        # 5. pre-response-selfcheck exit gate (auto when armed) - a FAIL
+        # verdict holds the envelope live in clarification: persisted,
+        # never delivered, never acked, flagged line on the log.
+        if self.selfcheck_model is not None:
+            from .pillars import exit_gate
+            g = exit_gate(self, env, model=self.selfcheck_model)
+            if not g["passed"]:
+                return {"status": "held", "queue": "clarification.request",
+                        "envelope_id": env.envelope_id,
+                        "reason": f"selfcheck FAIL: {g['line']}"}
         # 6. deliver
         handler = self.handlers.get(env.to_agent)
         if handler is None:

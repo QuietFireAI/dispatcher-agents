@@ -1,0 +1,44 @@
+{
+ "version": "1.0",
+ "vertical": "baseline-null-identity",
+ "routes": [
+  {
+   "intent": "diag.echo",
+   "senders": [
+    "human",
+    "p1"
+   ],
+   "receivers": [
+    "p1",
+    "p2"
+   ]
+  },
+  {
+   "intent": "diag.relay",
+   "senders": [
+    "p1"
+   ],
+   "receivers": [
+    "p2"
+   ]
+  },
+  {
+   "intent": "diag.report",
+   "senders": [
+    "p2"
+   ],
+   "receivers": [
+    "p1"
+   ]
+  },
+  {
+   "intent": "config.update",
+   "senders": [
+    "human"
+   ],
+   "receivers": [
+    "p1"
+   ]
+  }
+ ]
+}

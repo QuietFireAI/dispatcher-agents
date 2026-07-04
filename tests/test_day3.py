@@ -402,13 +402,16 @@ def test_unsigned_or_forged_transfer_refused_contexts_not_adopted(tmp_path):
 
 # ------------------------------------------- six-pillar wiring (final drop)
 def test_before_turn_pillar_runs_at_turn_entry(tmp_path):
-    from dispatcher.pillars import before_turn_check
+    # HOOK PATH, not the bare function: on_turn_start must fire the pillar.
+    # (v1 of this test called before_turn_check directly and stayed green
+    # while the hook was dead code after a return - tests the wiring now.)
     hub = make_hub(tmp_path)
     hub.send(env())
-    rec = before_turn_check(hub)
-    assert rec["thoughts_reviewed"] >= 1          # read its own reflections
-    assert len(rec["questions"]) == 4             # pillar's question set
-    assert "beforeturn.check" in [e["kind"] for e in hub.audit.read()]
+    hub.on_turn_start()
+    checks = [e for e in hub.audit.read() if e["kind"] == "beforeturn.check"]
+    assert len(checks) == 1
+    assert checks[0]["thoughts_reviewed"] >= 1    # read its own reflections
+    assert len(checks[0]["questions"]) == 4       # pillar's question set
 
 
 def test_taint_gate_is_the_pillar_not_a_copy(tmp_path):
@@ -466,3 +469,15 @@ def test_splitvantage_second_opinion_audited(tmp_path):
                        envelope_id="e9")
     assert d["uncertainty_delta"] == 2            # word-boundary counting live
     assert "splitvantage.review" in [e["kind"] for e in hub.audit.read()]
+
+
+def test_baseline_run_all_six_pillars_fire(tmp_path, monkeypatch):
+    """The set functions together on the null identity or no dispatcher
+    agents - the baseline script's own fail-loud assertion, as regression."""
+    monkeypatch.chdir(tmp_path)
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "demo"))
+    import baseline_run
+    pillar_events, kpis = baseline_run.run(outdir=str(tmp_path / "b"))
+    assert all(v > 0 for v in pillar_events.values())
+    assert kpis["ack_integrity"]["integrity_incidents"] == 0
+    assert kpis["playbook_completion"]["rate"] == 1.0

@@ -89,3 +89,12 @@ pre-response-selfcheck (exit gate, FAIL holds envelope), sleep-marks
 (territory transfer carry/restore), splitvantage (second opinion on
 flagged drift). Install all six: pip install -e <each pillar clone>.
 Unarmed gates audit their own absence. 57 tests.
+
+Baseline (demo/baseline_run.py + baseline/ null identity +
+PILLAR_TESTING_MANUAL.md): all six pillars auto-hooked and fired on a bare
+dispatcher in one deterministic command; fails loudly if any pillar is
+silent. Exit gate auto-runs on every delivery when armed (FAIL holds the
+envelope: persisted, never delivered, never acked); splitvantage auto-runs
+on drift flags when a reviewer pair is configured; before-turn auto-runs
+at turn entry, no model needed. Unarmed gates audit once at boot. The
+baseline KPI row is the reference for every identity. 58 tests.
