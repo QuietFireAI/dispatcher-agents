@@ -1,5 +1,0 @@
-{"ts": 1783176227.8646483, "kind": "selfcheck.unarmed", "scope": "boot", "reason": "no reviewer model configured - exit gate off, declared not silent"}
-{"ts": 1783176227.866648, "kind": "splitvantage.unarmed", "scope": "boot", "reason": "no reviewer pair configured - second opinion off, declared not silent"}
-{"ts": 1783176227.8738089, "kind": "territory.transfer.received", "contexts": {"lead-w": {"sequence_hwm": 6}}, "open_item_queues": []}
-{"ts": 1783176227.8746448, "kind": "sleepmark.restored", "context_summary": "territory transfer of ['lead-w']", "open_questions": ["clarification.request: 1 open item(s)", "integrity.violation: 1 open item(s)", "escalation.hot_lead: 1 open item(s)"]}
-{"ts": 1783176227.8753107, "kind": "territory.transfer.ack", "contexts": ["lead-w"]}
