@@ -23,6 +23,22 @@ from dispatcher.after_action import generate_report
 from dispatcher.runs import PlaybookRun, Watchdog, heartbeat
 from dispatcher.spokes import (Spoke01LeadCapture, Spoke02Qualification,
                                Spoke03Nurture, Spoke14CRM)
+from dispatcher.signatures import Ed25519Signer, Ed25519Verifier
+from dispatcher.territory import build_transfer, receive_transfer, confirm_release
+
+
+def stub_selfcheck(prompt: str) -> str:
+    return ("FAIL\nLINE: guaranteed\nFIX: verify before asserting"
+            if "guaranteed" in prompt else "PASS")
+
+
+def stub_model_a(prompt: str) -> dict:
+    return {"model": "stub-a", "response": f"It might be fine: {prompt[:40]}",
+            "thinking": "uncertain"}
+
+
+def stub_model_b(prompt: str) -> dict:
+    return {"model": "stub-b", "response": "Fine.", "thinking": ""}
 
 IDENTITY = os.environ.get("IDENTITY_DIR", "/home/claude/listing")
 
@@ -39,8 +55,11 @@ def run(outdir="after-action"):
     print(f"identity: {ident.vertical}, {ident.n_routes} routes, "
           f"{len(ident.agents)} agents; warnings: {ident.warnings}")
     notified = []
+    signer = Ed25519Signer()
     hub = Hub(Routes(ident.routes_path), AuditLog("demo-audit.jsonl"),
-              human_notifier=lambda q, r: notified.append((q, r)))
+              human_notifier=lambda q, r: notified.append((q, r)),
+              selfcheck_model=stub_selfcheck,
+              crosspol_models=(stub_model_a, stub_model_b))
     Spoke14CRM(hub); Spoke01LeadCapture(hub)
     Spoke02Qualification(hub); Spoke03Nurture(hub)
 
@@ -61,8 +80,24 @@ def run(outdir="after-action"):
                                "channel": "call"}))        # rubric 100 -> HOT
     pb.step(2, note="hot lead signal injected")
     time.sleep(0.01); heartbeat(hub)
+    # deliberate overclaim so the exit gate is TEMPTED on this identity too
+    held = hub.send(Envelope(from_agent="02", to_agent="14",
+                    intent="interaction.log", client_context_id="lead-h",
+                    payload={"note": "closing is guaranteed"},
+                    provenance={"source": "spoke-02", "captured_at": "runtime",
+                                "verbatim_available": True}))
+    # drifted reflection so splitvantage's auto second opinion is tempted
+    hub._reflect("synthetic-p11",
+                 "I am not sure; the tier might be wrong", "Tier confirmed.")
+    # crew change: signed territory transfer carries the sleepmark
+    hub_b = Hub(Routes(ident.routes_path), AuditLog("demo-audit-b.jsonl"))
+    ack = receive_transfer(hub_b, build_transfer(hub, ["lead-w"], signer),
+                           Ed25519Verifier(signer.public_key_bytes()))
+    confirm_release(hub, ["lead-w"], ack)
     sched.release_segment(run_id, "01")
     pb.complete()
+    print(f"selfcheck on identity traffic: {held['status']} "
+          f"({held.get('reason')})")
 
     refl = analyze_reflections(hub)
     traces = score_spoke_traces(hub)
@@ -88,6 +123,14 @@ def run(outdir="after-action"):
     path = os.path.join(outdir, f"P11-{run_id}.md")
     open(path, "w").write(report)
     print(f"after-action: {path}")
+    pillar_events = {k: sum(1 for e in events if e["kind"] == k) for k in
+                     ("beforeturn.check", "openmind.drift",
+                      "agentopenmind.tainted", "selfcheck.verdict",
+                      "sleepmark.captured", "splitvantage.review")}
+    print("pillar events on LISTING identity (all six nonzero):",
+          pillar_events)
+    assert all(v > 0 for v in pillar_events.values()), \
+        "A PILLAR DID NOT FIRE ON THE IDENTITY - no dispatcher agents"
     return path, steps, notified
 
 

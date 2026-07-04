@@ -196,7 +196,7 @@ Epistemic status, stated plainly: the tools exist as code. The founding observat
 Every tool described here exists as code, has a README that was reviewed cold before publishing, and has at least one documented founding moment that explains why it exists.
 
 Part of the [QuietFireAI](https://github.com/QuietFireAI) project.
-[dispatcheragents.com](https://dispatcheragents.com)
+[QuietFireAI](https://github.com/QuietFireAI)
 
 ---
 

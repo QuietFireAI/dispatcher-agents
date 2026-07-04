@@ -111,7 +111,7 @@ What would be genuinely novel, if it replicates: the token-economics finding. Fa
 
 Any new claim added to any README in this stack must be added to this ledger first, with a class. A claim that cannot be classified does not ship.
 
-*Part of the [DispatcherAgents](https://dispatcheragents.com) project by [QuietFireAI](https://github.com/QuietFireAI).*
+*Part of the [DispatcherAgents](https://github.com/QuietFireAI/dispatcher-agents) project by [QuietFireAI](https://github.com/QuietFireAI).*
 
 ### dispatcher runtime (this repo) + listing-agents vertical
 
