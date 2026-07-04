@@ -23,11 +23,16 @@ Enterprise extension (referenced, not required): [TelsonBase](https://github.com
   message hub where every (from → intent → to) tuple is enforced at send time,
   acks exist only after persist-and-delivery, and the audit log is the sole
   source of every KPI and after-action report.
-- **Detection tier** - the six pillars above, wired into the runtime as
-  seams: before-turn at turn entry, open-mind's Comparator on the hub's own
-  reasoning-vs-action artifacts, agent-open-mind on every spoke trace
-  (absent thought = tainted, never silently admitted), sleep-marks at crew
-  change, splitvantage for cross-model review.
+- **Detection tier** - the six pillars. Two run IN the runtime with
+  analysis: open-mind's Comparator on the hub's own reasoning-vs-action
+  artifacts, and agent-open-mind on every spoke trace (absent thought =
+  tainted, never silently admitted). One is a seam awaiting analysis:
+  before-turn (the hub reads and logs its own prior state at turn entry;
+  no pillar scoring wired yet). Three operate at process level, not in
+  the runtime: pre-response-selfcheck (exit-gate on drafted output),
+  sleep-marks (crew-change state capture), splitvantage (cross-model
+  review). Wiring status is stated per pillar because "six pillars, all
+  wired" would be false, and this README does not get to be false.
 - **Structural tier** - TelsonBase: allow/gate/block per tool call, below
   the model, for deployments that need enforcement rather than detection.
 
