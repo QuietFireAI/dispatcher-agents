@@ -1,5 +1,5 @@
-{"ts": 1783172012.233402, "kind": "selfcheck.unarmed", "scope": "boot", "reason": "no reviewer model configured - exit gate off, declared not silent"}
-{"ts": 1783172012.23541, "kind": "splitvantage.unarmed", "scope": "boot", "reason": "no reviewer pair configured - second opinion off, declared not silent"}
-{"ts": 1783172012.2496395, "kind": "territory.transfer.received", "contexts": {"lead-w": {"sequence_hwm": 6}}, "open_item_queues": []}
-{"ts": 1783172012.250658, "kind": "sleepmark.restored", "context_summary": "territory transfer of ['lead-w']", "open_questions": ["clarification.request: 1 open item(s)", "integrity.violation: 1 open item(s)", "escalation.hot_lead: 1 open item(s)"]}
-{"ts": 1783172012.2513986, "kind": "territory.transfer.ack", "contexts": ["lead-w"]}
+{"ts": 1783175418.6342273, "kind": "selfcheck.unarmed", "scope": "boot", "reason": "no reviewer model configured - exit gate off, declared not silent"}
+{"ts": 1783175418.6359293, "kind": "splitvantage.unarmed", "scope": "boot", "reason": "no reviewer pair configured - second opinion off, declared not silent"}
+{"ts": 1783175418.6419206, "kind": "territory.transfer.received", "contexts": {"lead-w": {"sequence_hwm": 6}}, "open_item_queues": []}
+{"ts": 1783175418.6427953, "kind": "sleepmark.restored", "context_summary": "territory transfer of ['lead-w']", "open_questions": ["clarification.request: 1 open item(s)", "integrity.violation: 1 open item(s)", "escalation.hot_lead: 1 open item(s)"]}
+{"ts": 1783175418.6435158, "kind": "territory.transfer.ack", "contexts": ["lead-w"]}
