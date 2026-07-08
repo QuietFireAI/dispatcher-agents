@@ -56,7 +56,12 @@ def run(outdir="after-action"):
           f"{len(ident.agents)} agents; warnings: {ident.warnings}")
     notified = []
     signer = Ed25519Signer()
-    hub = Hub(Routes(ident.routes_path), AuditLog("demo-audit.jsonl"),
+    # one self-contained audit file PER RUN. AuditLog is append-only by design,
+    # so a fixed filename accumulates across reruns and inflates every count
+    # (11 -> 22 -> 33). Same discipline as baseline_run.py's run_tag.
+    run_tag = uuid.uuid4().hex[:8]
+    hub = Hub(Routes(ident.routes_path),
+              AuditLog(os.path.join(outdir, f"demo-audit-{run_tag}.jsonl")),
               human_notifier=lambda q, r: notified.append((q, r)),
               selfcheck_model=stub_selfcheck,
               crosspol_models=(stub_model_a, stub_model_b))
@@ -90,7 +95,8 @@ def run(outdir="after-action"):
     hub._reflect("synthetic-p11",
                  "I am not sure; the tier might be wrong", "Tier confirmed.")
     # crew change: signed territory transfer carries the sleepmark
-    hub_b = Hub(Routes(ident.routes_path), AuditLog("demo-audit-b.jsonl"))
+    hub_b = Hub(Routes(ident.routes_path),
+                AuditLog(os.path.join(outdir, f"demo-audit-b-{run_tag}.jsonl")))
     ack = receive_transfer(hub_b, build_transfer(hub, ["lead-w"], signer),
                            Ed25519Verifier(signer.public_key_bytes()))
     confirm_release(hub, ["lead-w"], ack)

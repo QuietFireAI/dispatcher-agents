@@ -15,5 +15,22 @@ requires-python = ">=3.10"
 # carries this since commit 857f0dc (pushed and SHA-verified 07/2026). A test
 # pins the version and FAILS LOUDLY against any stale pillar. That is intended.
 
+[project.optional-dependencies]
+# The runtime CORE (dispatcher.core, dispatcher.hub) is zero-dependency.
+# dispatcher.pillars and dispatcher.analysis import the six pillars from
+# source (never vendored). Install them with:  pip install -e ".[pillars]"
+# This is what the test suite and the P11 demo require.
+pillars = [
+    "before-turn @ git+https://github.com/QuietFireAI/before-turn",
+    "open-mind @ git+https://github.com/QuietFireAI/open-mind",
+    "agent-open-mind @ git+https://github.com/QuietFireAI/agent-open-mind",
+    "sleep-marks @ git+https://github.com/QuietFireAI/sleep-marks",
+    "pre-response-selfcheck @ git+https://github.com/QuietFireAI/pre-response-selfcheck",
+    "splitvantage @ git+https://github.com/QuietFireAI/splitvantage",
+]
+# Ed25519 asymmetric authority tier only. HMAC tier stays zero-dep.
+crypto = ["cryptography>=42"]
+dev = ["pytest>=7"]
+
 [tool.setuptools]
 packages = ["dispatcher"]

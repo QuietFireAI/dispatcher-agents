@@ -62,10 +62,14 @@ for the evidence classes.
 
 ```
 git clone https://github.com/QuietFireAI/dispatcher-agents
-cd dispatcher-agents && pip install -e .            # zero deps (Ed25519 optional: pip install cryptography)
-python3 -m pytest tests/                            # 51 doctrine tests vs the real 35-route track
+cd dispatcher-agents
+pip install -e ".[pillars,crypto,dev]"              # core hub is zero-dep; pillars+Ed25519 are extras
 git clone https://github.com/QuietFireAI/listing-agents ../listing-agents
+IDENTITY_DIR=../listing-agents python3 -m pytest tests/       # 60 doctrine tests vs the real 35-route track
 IDENTITY_DIR=../listing-agents python3 demo/run_p11_demo.py   # real spokes chain 11 envelopes from 2 signals
+
+# Without the listing-agents identity, 4 identity-gated tests skip (56 pass).
+# The core hub alone installs with plain `pip install -e .` (no extras).
 ```
 
 ## This Repo

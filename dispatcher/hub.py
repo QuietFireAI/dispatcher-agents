@@ -132,10 +132,13 @@ class Hub:
         if queue not in self.queues or not queue.startswith("escalation."):
             raise KeyError(f"unknown escalation queue {queue!r}")
         self.queues[queue].append(record)
-        self.audit.append("escalation.raised", {"queue": queue, **record})
+        # queue is dispatcher-assigned routing, not caller-writable: splat the
+        # untrusted record FIRST so the framing queue wins (a spoke must not be
+        # able to redirect its escalation's audited queue).
+        self.audit.append("escalation.raised", {**record, "queue": queue})
         if self.human_notifier is not None:
             self.human_notifier(queue, record)
-            self.audit.append("human.notified", {"queue": queue, **record})
+            self.audit.append("human.notified", {**record, "queue": queue})
         return {"status": "escalated", "queue": queue}
 
     def register(self, agent_id: str, handler: Callable[[Envelope], None]):

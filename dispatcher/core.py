@@ -85,8 +85,14 @@ class AuditLog:
         self.path = path
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
+    RESERVED = ("ts", "kind")  # framing fields the log owns, never the caller
+
     def append(self, kind: str, record: dict) -> None:
-        line = json.dumps({"ts": time.time(), "kind": kind, **record})
+        # Framing wins: a caller-supplied record can never shadow the log's own
+        # ts/kind. Without this, any splatted untrusted dict (see Hub.escalate)
+        # could forge or erase an event kind - the audit log is the single
+        # source of truth, so its framing is not caller-writable.
+        line = json.dumps({**record, "ts": time.time(), "kind": kind})
         with open(self.path, "a") as f:
             f.write(line + "\n")
             f.flush()
