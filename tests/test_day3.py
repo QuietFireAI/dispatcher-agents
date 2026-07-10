@@ -172,9 +172,10 @@ def test_loads_real_listing_identity():
     # Pinned to the live identity. 24 since listing-agents d85ae51
     # (added playbooks P21-P24 and classified them in the DRAFT table).
     assert ident.priority_classes and len(ident.priority_classes) == 24
-    assert "pending" in ident.priority_status.lower() \
-        or "draft" in ident.priority_status.lower()
-    assert any("DRAFT" in w or "pending" in w for w in ident.warnings)
+    # Ratified 2026-07-10 (owner sign-off, approved as written) - the loader
+    # must carry the ratified status and emit NO draft/pending warning for it.
+    assert "ratified" in ident.priority_status.lower()
+    assert not any("DRAFT" in w or "pending" in w.lower() for w in ident.warnings)
 
 
 @needs_listing
