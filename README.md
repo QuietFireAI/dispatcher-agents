@@ -2,7 +2,7 @@
 
 **A governance stack for AI agents** - tools that redirect an agent's attention to what it is actually doing: before it responds, after it responds, while it reasons, across sessions, and when it delegates.
 
-Read the [MANIFESTO](./MANIFESTO.md) for the full architecture. Read [EVIDENCE.md](./EVIDENCE.md) for every claim in the stack, classified by evidence status - the stack audits itself before anyone else gets the chance.
+Read the [MANIFESTO](./MANIFESTO.md) for the full architecture. Read [EVIDENCE.md](./EVIDENCE.md) for every claim in the stack, classified by evidence status - the stack audits itself before anyone else gets the chance. Agent runtimes (Claude, OpenClaw, Hermes): [SKILL.md](./SKILL.md) is the drop-in skill for running this dispatcher as a governed tool.
 
 ## The Stack
 

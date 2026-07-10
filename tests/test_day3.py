@@ -169,7 +169,9 @@ def test_loads_real_listing_identity():
     ident = load_identity(LISTING)
     assert ident.n_routes == 35
     assert len(ident.agents) == 21
-    assert ident.priority_classes and len(ident.priority_classes) == 20
+    # Pinned to the live identity. 24 since listing-agents d85ae51
+    # (added playbooks P21-P24 and classified them in the DRAFT table).
+    assert ident.priority_classes and len(ident.priority_classes) == 24
     assert "pending" in ident.priority_status.lower() \
         or "draft" in ident.priority_status.lower()
     assert any("DRAFT" in w or "pending" in w for w in ident.warnings)

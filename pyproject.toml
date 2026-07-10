@@ -12,8 +12,9 @@ requires-python = ">=3.10"
 #   pip install -e <path-to-open-mind-clone>
 # NOTE: dispatcher.analysis requires the comparator at uncertainty weight 0.3
 # with the broadened confidence regex. The live QuietFireAI/open-mind repo
-# carries this since commit 857f0dc (pushed and SHA-verified 07/2026). A test
-# pins the version and FAILS LOUDLY against any stale pillar. That is intended.
+# carries this since 857f0dc; since 0bf6301 the weights are exported constants
+# (UNCERTAINTY_WEIGHT etc.) shared with the evidence module. A test pins the
+# behavior and FAILS LOUDLY against any stale pillar. That is intended.
 
 [project.optional-dependencies]
 # The runtime CORE (dispatcher.core, dispatcher.hub) is zero-dependency.
