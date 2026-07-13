@@ -96,8 +96,18 @@ class Hub:
                  "open_holds": {q: len(v) for q, v in self.queues.items() if v}}
         self.audit.append("turn.start", {"read_prior_state": True,
                                          "open_holds": state["open_holds"]})
-        from .pillars import before_turn_check
-        before_turn_check(self)
+        try:
+            from .pillars import before_turn_check
+        except ImportError:
+            # Core-only install (no [pillars] extra). UNARMED IS AUDITED,
+            # never a crash and never silent - the zero-dependency core
+            # routes; the detection tier declares itself absent.
+            self.audit.append("beforeturn.unarmed",
+                              {"reason": "pillar packages not installed - "
+                                         "turn-entry check off, declared "
+                                         "not silent"})
+        else:
+            before_turn_check(self)
         return state
 
     def _reflect(self, envelope_id: str, thought: str, action: str) -> None:

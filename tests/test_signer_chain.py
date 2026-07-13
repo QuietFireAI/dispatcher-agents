@@ -176,3 +176,16 @@ def test_unclassified_playbook_fails_closed(tmp_path):
     s = SidingScheduler(AuditLog(str(tmp_path / "a.jsonl")), {"P01": 1})
     with pytest.raises(KeyError, match="unclassified"):
         s.request_segment("run1", "P99", "02")
+
+
+# ----------------------------------------------- core-only (no pillars) mode
+def test_core_only_turn_start_unarmed_not_crash(tmp_path, monkeypatch):
+    import sys
+    for m in ["before_turn", "open_mind", "agent_open_mind", "sleep_marks",
+              "pre_response_selfcheck", "splitvantage"]:
+        monkeypatch.setitem(sys.modules, m, None)  # forces ImportError
+    monkeypatch.delitem(sys.modules, "dispatcher.pillars", raising=False)
+    hub = Hub(_routes(tmp_path), AuditLog(str(tmp_path / "a.jsonl")))
+    hub.on_turn_start()
+    kinds = [e["kind"] for e in hub.audit.read()]
+    assert "beforeturn.unarmed" in kinds
