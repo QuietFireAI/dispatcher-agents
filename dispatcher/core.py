@@ -10,6 +10,7 @@ Doctrine encoded as executable behavior:
 Spec sources: DISPATCHER_CORE.md, 00-dispatcher/SKILL.md, SWARM.md v0.16.
 """
 from __future__ import annotations
+import hashlib
 import json, os, time, uuid
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -78,25 +79,76 @@ class Routes:
 
 
 class AuditLog:
-    """Append-only JSONL. Persist happens BEFORE delivery; the log is the
-    single source of truth for KPIs - no self-reported metrics exist."""
+    """Append-only, HASH-CHAINED JSONL. Persist happens BEFORE delivery; the
+    log is the single source of truth for KPIs - no self-reported metrics
+    exist.
+
+    Chain doctrine (login-based signer decision, 2026-07-11): every entry
+    carries prev_hash (the entry_hash of the line before it, or GENESIS) and
+    entry_hash (sha256 of this entry's canonical content + prev_hash).
+    Editing, deleting, or reordering any line breaks every hash after it -
+    integrity and non-repudiation of the record come from this chain, not
+    from trust in the file."""
+
+    GENESIS = "GENESIS"
 
     def __init__(self, path: str):
         self.path = path
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self._prev = self._recover_tip()
 
-    RESERVED = ("ts", "kind")  # framing fields the log owns, never the caller
+    def _recover_tip(self) -> str:
+        """Resume the chain across process restarts: tip = last entry_hash."""
+        if not os.path.exists(self.path):
+            return self.GENESIS
+        tip = self.GENESIS
+        with open(self.path) as f:
+            for line in f:
+                if line.strip():
+                    tip = json.loads(line).get("entry_hash", tip)
+        return tip
+
+    RESERVED = ("ts", "kind", "prev_hash", "entry_hash")  # framing fields the log owns, never the caller
+
+    @staticmethod
+    def _entry_hash(body: dict, prev: str) -> str:
+        canon = json.dumps(body, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256((prev + canon).encode()).hexdigest()
 
     def append(self, kind: str, record: dict) -> None:
         # Framing wins: a caller-supplied record can never shadow the log's own
-        # ts/kind. Without this, any splatted untrusted dict (see Hub.escalate)
-        # could forge or erase an event kind - the audit log is the single
-        # source of truth, so its framing is not caller-writable.
-        line = json.dumps({**record, "ts": time.time(), "kind": kind})
+        # ts/kind/chain fields. Without this, any splatted untrusted dict (see
+        # Hub.escalate) could forge or erase an event kind - the audit log is
+        # the single source of truth, so its framing is not caller-writable.
+        body = {**record, "ts": time.time(), "kind": kind}
+        for k in ("prev_hash", "entry_hash"):
+            body.pop(k, None)
+        eh = self._entry_hash(body, self._prev)
+        line = json.dumps({**body, "prev_hash": self._prev, "entry_hash": eh})
         with open(self.path, "a") as f:
             f.write(line + "\n")
             f.flush()
             os.fsync(f.fileno())
+        self._prev = eh
+
+    def verify_chain(self) -> dict:
+        """Walk the file and recompute every link. Returns
+        {ok, entries, break_at} - break_at names the first bad line (1-based)."""
+        prev, n = self.GENESIS, 0
+        if not os.path.exists(self.path):
+            return {"ok": True, "entries": 0, "break_at": None}
+        with open(self.path) as f:
+            for i, line in enumerate(f, 1):
+                if not line.strip():
+                    continue
+                e = json.loads(line)
+                body = {k: v for k, v in e.items()
+                        if k not in ("prev_hash", "entry_hash")}
+                if e.get("prev_hash") != prev or \
+                   e.get("entry_hash") != self._entry_hash(body, prev):
+                    return {"ok": False, "entries": i, "break_at": i}
+                prev = e["entry_hash"]; n = i
+        return {"ok": True, "entries": n, "break_at": None}
 
     def read(self) -> list[dict]:
         if not os.path.exists(self.path):

@@ -22,6 +22,16 @@ from .core import Envelope, Routes, AuditLog
 AUTHORITY_INTENTS = {"listing.change.authorized", "config.update"}
 
 
+def is_authority(intent: str) -> bool:
+    """Authority classification for the enforcement gate. Identity modules
+    across the stack name signed-human lanes with the `.authority` suffix
+    (payment.authority, ratecon.authority, comp.authority, ...); the static
+    set keeps config.update and the original listing intent. A hardcoded
+    set alone was the defect: identity authority intents sailed past the
+    signature gate unchecked."""
+    return intent.endswith(".authority") or intent in AUTHORITY_INTENTS
+
+
 class Reject(Exception):
     def __init__(self, reason: str):
         self.reason = reason
@@ -34,7 +44,8 @@ class Hub:
                  human_notifier: Optional[Callable[[str, dict], None]] = None,
                  loop_threshold: int = 20,
                  selfcheck_model=None,
-                 crosspol_models: tuple | None = None):
+                 crosspol_models: tuple | None = None,
+                 signer_registry=None):
         # selfcheck_model: reviewer callable for the pre-response-selfcheck
         # exit gate on every outbound delivery. crosspol_models: pair of
         # callables (prompt -> {model,response,thinking}) for splitvantage
@@ -52,6 +63,12 @@ class Hub:
         self.loop_counts: dict[tuple, int] = {}
         self.selfcheck_model = selfcheck_model
         self.crosspol_models = crosspol_models
+        # signer_registry: SignerRegistry armed from the identity's ratified
+        # config/authority_signers.json (login-based signer decision,
+        # 2026-07-11). None = UNARMED IS AUDITED per authority envelope -
+        # crypto signature still required, WHO-signed binding is off and
+        # says so. It never silently defaults.
+        self.signer_registry = signer_registry
         if selfcheck_model is None:
             self.audit.append("selfcheck.unarmed",
                               {"scope": "boot", "reason": "no reviewer model "
@@ -173,13 +190,36 @@ class Hub:
         if errs:
             return self._reject(env, f"schema: {errs}")
         # 2. authority signature - the signature, not the sender field, is trust
-        if env.intent in AUTHORITY_INTENTS:
+        if is_authority(env.intent):
             if not self.verify_sig(env):
                 self.queues["integrity.violation"].append(env.to_record())
                 self.audit.append("integrity.violation",
                                   {"envelope_id": env.envelope_id,
                                    "reason": "authority intent without verified signature"})
                 return self._reject(env, "unverified signature on authority intent")
+            # 2b. signer identity - the crypto proves the envelope is sealed;
+            # the registry proves the sealed stamp names an authorized human
+            # login (IdP+MFA doctrine). Registry verdicts ride the hash chain.
+            if self.signer_registry is not None:
+                v = self.signer_registry.check(env)
+                if not v.ok:
+                    self.queues["integrity.violation"].append(env.to_record())
+                    self.audit.append("integrity.violation",
+                                      {"envelope_id": env.envelope_id,
+                                       "reason": f"signer registry: {v.reason}"})
+                    return self._reject(env, f"signer registry: {v.reason}")
+                stamp = env.provenance["signer"]
+                self.audit.append("signer.verified",
+                                  {"envelope_id": env.envelope_id,
+                                   "intent": env.intent,
+                                   "signer_login": stamp["signer_login"],
+                                   "idp_session_ref": stamp["idp_session_ref"]})
+            else:
+                self.audit.append("signer.unarmed",
+                                  {"envelope_id": env.envelope_id,
+                                   "reason": "no signer registry armed - "
+                                             "WHO-signed binding off, declared "
+                                             "not silent (crypto check only)"})
         # 3. closed track
         if not self.routes.tuple_legal(env.from_agent, env.intent, env.to_agent):
             known_intent = any(True for _ in self.routes.matches(env.intent))

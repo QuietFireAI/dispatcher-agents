@@ -12,7 +12,7 @@ from dispatcher.loader import load_identity
 
 FIX = os.path.join(os.path.dirname(__file__), "routes_fixture.json")
 PKG = os.path.join(os.path.dirname(__file__), "..", "dispatcher")
-LISTING = os.environ.get("IDENTITY_DIR", "/home/claude/listing")  # real identity when available
+LISTING = os.environ.get("IDENTITY_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "listing-agents"))  # real identity when present as a sibling clone; identity-gated tests skip cleanly otherwise
 
 
 def make_hub(tmp_path, verifier=None):

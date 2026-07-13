@@ -65,10 +65,10 @@ git clone https://github.com/QuietFireAI/dispatcher-agents
 cd dispatcher-agents
 pip install -e ".[pillars,crypto,dev]"              # core hub is zero-dep; pillars+Ed25519 are extras
 git clone https://github.com/QuietFireAI/listing-agents ../listing-agents
-IDENTITY_DIR=../listing-agents python3 -m pytest tests/       # 60 doctrine tests vs the real 35-route track
+IDENTITY_DIR=../listing-agents python3 -m pytest tests/       # 78 doctrine tests vs the real 35-route track
 IDENTITY_DIR=../listing-agents python3 demo/run_p11_demo.py   # real spokes chain 11 envelopes from 2 signals
 
-# Without the listing-agents identity, 4 identity-gated tests skip (56 pass).
+# Identity-gated tests target the repo bundled at IDENTITY_DIR (default: a fixture track); point IDENTITY_DIR at listing-agents for the real 35-route run.
 # The core hub alone installs with plain `pip install -e .` (no extras).
 ```
 
@@ -82,7 +82,7 @@ This is the hub: the manifesto, the claims ledger, and the findings.
 
 ## Status
 
-v0.2, July 2026. All six pillars exist as code with reviewed documentation,
+v0.3, July 2026. Hash-chained audit log, login-based signer enforcement on all `.authority` lanes (78-test suite). All six pillars exist as code with reviewed documentation,
 and the dispatcher runtime exists with a green doctrine-test suite against a
 real vertical track. The stack's quantitative claims are classified in
 EVIDENCE.md; highest-priority open items are the A/B validation of the

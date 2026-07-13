@@ -73,7 +73,7 @@ pip install -e ".[pillars,crypto,dev]"   # pillars pulled from source, never ven
 ### Verify before claiming anything works
 
 ```bash
-python -m pytest tests/                  # 56 doctrine tests (60 with an identity present)
+python -m pytest tests/                  # 78 doctrine tests (identity-gated tests activate with IDENTITY_DIR)
 python demo/baseline_run.py              # must print all six pillar events nonzero
 python tools/kpi_gate.py baseline-out/audit-<id>.jsonl \
     --taints-expected 1 --selfcheck-bait-expected 1
@@ -95,6 +95,33 @@ hub.register("02", handler)
 hub.send(envelope)   # ack only if the tuple is legal, persisted, and delivered
 ```
 
+### Arm the authority tier (signed money lanes)
+
+Every intent ending `.authority` (plus `config.update`) is authority-classed:
+it requires a verified cryptographic signature, and - when the signer
+registry is armed - a signer stamp naming an authorized human login
+(IdP + MFA doctrine, owner decision 2026-07-11). The audit log is
+hash-chained; `AuditLog.verify_chain()` proves nothing was edited, deleted,
+or reordered.
+
+```python
+from dispatcher.signatures import HmacSigner
+from dispatcher.signer_registry import SignerRegistry
+
+signer = HmacSigner(key)                          # or the Ed25519 tier
+registry = SignerRegistry.load(ident.root)        # fail-closed: refuses UNRATIFIED templates
+hub = Hub(Routes(ident.routes_path), AuditLog("audit.jsonl"),
+          signature_verifier=signer.verifier(), signer_registry=registry)
+# authority envelopes must carry provenance["signer"] =
+#   {"signer_login": ..., "idp_session_ref": ..., "mfa": True}
+```
+
+Unarmed states are audited (`signer.unarmed`), never silent. What the
+runtime proves: the stamp names a login the ratified registry authorizes for
+that intent, sealed under the envelope signature, on a tamper-evident log.
+What it does not prove: that the IdP session is genuine - that is the IdP
+seam adapter's job (each identity's INTEGRATIONS.md).
+
 `IDENTITY_DIR` selects the identity for the demo and the identity-gated
 tests: `IDENTITY_DIR=/path/to/listing-agents python -m pytest tests/`.
 
@@ -113,11 +140,12 @@ tests: `IDENTITY_DIR=/path/to/listing-agents python -m pytest tests/`.
 
 ## Repo map
 
-- `dispatcher/core.py` — Routes (closed track) + append-only AuditLog
+- `dispatcher/core.py` — Routes (closed track) + hash-chained append-only AuditLog
 - `dispatcher/hub.py` — the hub: ack discipline, holds, sequence, pillar seams
 - `dispatcher/pillars.py` — the six pillar bindings (imports, never copies)
 - `dispatcher/analysis.py` — open-mind comparator + taint scoring over the log
-- `dispatcher/signatures.py`, `dispatcher/attestation.py` — authority + boot trust
+- `dispatcher/signatures.py`, `dispatcher/attestation.py` — authority crypto + boot trust
+- `dispatcher/signer_registry.py` — login-based signer enforcement (fail-closed arming)
 - `dispatcher/priority.py` — JIT run-priority (siding scheduler, pacing over braking)
 - `dispatcher/territory.py` — territory transfers carrying sleep-marks
 - `dispatcher/loader.py` — identity loading, fail-closed on missing track
