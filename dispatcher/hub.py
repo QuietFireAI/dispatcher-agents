@@ -83,7 +83,8 @@ class Hub:
         self.queues: dict[str, list] = {
             "clarification.request": [], "integrity.violation": [],
             "escalation.legal_line": [], "escalation.hot_lead": [],
-            "escalation.complaint": [], "dead.letter": []}
+            "escalation.complaint": [], "escalation.system_error": [],
+            "dead.letter": []}
         # pillar seams
         self.reflection_artifacts: list[dict] = []   # open-mind input
         self.spoke_traces: list[dict] = []           # agent-open-mind input
@@ -260,6 +261,29 @@ class Hub:
                         "envelope_id": env.envelope_id,
                         "reason": f"selfcheck FAIL: {g['line']}"}
         # 6. deliver
+        if env.to_agent == "queue":
+            # "queue" is a virtual destination (clarification.request,
+            # integrity.violation), not a real registered agent - real bug
+            # found mid-session: every clarification.request sent via the
+            # normal send() path was silently dead-lettering here, because
+            # nothing registers a handler for the literal string "queue".
+            # The dedicated tracking queue was never actually populated by
+            # any agent's real traffic - tests only ever checked
+            # envelope.persisted (which happens before this step), so it
+            # went undetected. Fixed: route to the queue by intent name,
+            # and notify immediately - unexpected/unrecognized values
+            # deserve the same active-push urgency as an escalation, not a
+            # passive list nobody is watching.
+            self.queues.setdefault(env.intent, []).append(env.to_record())
+            self.audit.append("hold.queued", {"envelope_id": env.envelope_id,
+                                              "intent": env.intent})
+            if self.human_notifier is not None:
+                self.human_notifier(env.intent, env.to_record())
+                self.audit.append("human.notified", {"envelope_id": env.envelope_id,
+                                                      "intent": env.intent,
+                                                      "queue": env.intent})
+            return {"status": "held", "queue": env.intent,
+                    "envelope_id": env.envelope_id}
         handler = self.handlers.get(env.to_agent)
         if handler is None:
             self.queues["dead.letter"].append(env.to_record())
@@ -269,9 +293,23 @@ class Hub:
         try:
             handler(env)
         except Exception as e:  # raw reason, never softened
+            # Distinct from "no handler yet" above - that's benign,
+            # expected during incremental build-out. This is a REGISTERED
+            # agent crashing on real input: a genuine defect. A crashed
+            # handler cannot self-report its own failure, so the hub - the
+            # only thing that ever sees this - has to raise the alarm
+            # immediately. Routed through the real escalate() method (not
+            # a manual queue append) so it actually reaches human_notifier
+            # like every other escalation does, rather than sitting in a
+            # passive list nobody is actively watching.
             self.queues["dead.letter"].append(env.to_record())
             self.audit.append("dead.letter", {"envelope_id": env.envelope_id,
                                               "reason": repr(e)})
+            self.escalate("escalation.system_error",
+                         {"envelope_id": env.envelope_id, "agent": env.to_agent,
+                          "intent": env.intent,
+                          "client_context_id": env.client_context_id,
+                          "reason": repr(e)})
             return {"status": "dead.letter", "envelope_id": env.envelope_id,
                     "reason": repr(e)}
         # 7. ACK - only now is it a fact
