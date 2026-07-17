@@ -92,7 +92,7 @@ identical runs is nondeterminism - report it as a defect.
     IDENTITY_DIR=../listing-agents python3 -m pytest tests/ -q   # 89
     IDENTITY_DIR=../listing-agents python3 demo/run_p11_demo.py
 
-EXPECTED: identity loads 50 routes v0.18 / 21 agents / 24 classes, ratified
+EXPECTED: identity loads 51 routes v0.19 / 21 agents / 24 classes, ratified
 (no DRAFT warning - priority.json moved to RATIFIED 2026-07-10); demo chains
 11 envelopes from 2 injected, 1 taint, 1 human notification.
 

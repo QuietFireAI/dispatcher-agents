@@ -52,9 +52,13 @@ class Hub:
         # second opinions on drift-flagged reflections. Both are deployment
         # config; UNARMED IS AUDITED AT BOOT, once, never silently off.
         # loop_threshold: max envelopes per (client_context_id, intent) before
-        # the loop suspends into clarification. 20 is PROVISIONAL AND
-        # ARBITRARY (no spec number, no empirical basis) - after-action data
-        # sets the real value, same discipline as MANNERS N=10.
+        # the loop suspends into clarification. RATIFIED (owner, 2026-07-17):
+        # 20 stands as a deliberate placeholder - no empirical basis existed
+        # at ratification (no real production traffic yet to measure a
+        # normal repeat-count against), and none was invented to justify it.
+        # Revisit once real after-action data exists; until then this is a
+        # decided value, not an open question. Same discipline as MANNERS
+        # N=10, ratified the same day for the same reason.
         self.routes = routes
         self.audit = audit
         self.verify_sig = signature_verifier or (lambda env: False)
@@ -142,8 +146,10 @@ class Hub:
 
     def manners_reinjection(self, trigger: str, position: str = "") -> None:
         """MANNERS.md anti-fade mechanism, instrumented: phase_gate and
-        post_compaction are CONSTANTS; turn_backstop is the N=10 PROVISIONAL
-        backstop. Counts and positions feed after-action fade-tracking."""
+        post_compaction are CONSTANTS; turn_backstop is the N=10 backstop,
+        RATIFIED (owner, 2026-07-17) as a deliberate placeholder pending
+        real fade-rate data. Counts and positions feed after-action
+        fade-tracking."""
         if trigger not in self.MANNERS_TRIGGERS:
             raise ValueError(f"unknown manners trigger {trigger!r}; "
                              f"constants are {self.MANNERS_TRIGGERS}")

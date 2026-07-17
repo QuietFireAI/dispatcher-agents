@@ -117,7 +117,7 @@ Any new claim added to any README in this stack must be added to this ledger fir
 
 | Claim | Class | Notes |
 |---|---|---|
-| Hub enforces (from → intent → to) tuples at runtime against the real 50-route listing track | **MEASURED** | tests/test_hub.py 12 assertions incl. Agent-15 defect-class regression; 89/89 suite green with or without IDENTITY_DIR explicitly set (relative-path fallback fixed 2026-07-16), re-run from fresh clone of the live repo |
+| Hub enforces (from → intent → to) tuples at runtime against the real 51-route listing track | **MEASURED** | tests/test_hub.py 12 assertions incl. Agent-15 defect-class regression; 89/89 suite green with or without IDENTITY_DIR explicitly set (relative-path fallback fixed 2026-07-16), re-run from fresh clone of the live repo |
 | Ack only after persist AND delivery; failed delivery never acks | **MEASURED** | test_hub.py ordering + dead-letter tests against audit log |
 | Absent spoke thought = tainted at ingestion, flagged, never scored, never silent | **MEASURED** | test_day3.py taint tests; fired live in P11 demo (report on file) |
 | open-mind Comparator wired to hub reflection artifacts (pillar source, imported) | **MEASURED** | test_analysis_kpi.py; ported 0.3 weight + broadened regex pinned by test |
@@ -128,7 +128,7 @@ Any new claim added to any README in this stack must be added to this ledger fir
 | Tuple-level runtime enforcement prevents the defect class that survived 4 verification passes | **HYPOTHESIS** | regression test proves detection; prevention-in-production pending Jeff's A/B (metrics in AFTER_ACTION schema) |
 | Boot attestation detects drift between reviewed and running code | **MEASURED** (detection) / **DESIGN CLAIM** (authenticity) | tamper/absence/unattested-file tests; manifest unsigned until deployment wiring |
 | Stub-spoke demo latencies (~0.6ms routing) generalize to real spokes | **POSITION** | in-process no-op handlers; real-spoke numbers require Jeff's runtime, not claimed |
-| Loop protection suspends per (context,intent) at threshold; retries never inflate the count | **MEASURED** | test_day3.py; threshold 20 PROVISIONAL AND ARBITRARY, after-action data sets it |
+| Loop protection suspends per (context,intent) at threshold; retries never inflate the count | **MEASURED** | test_day3.py; threshold 20 RATIFIED (owner, 2026-07-17) as a deliberate placeholder, revisit when after-action data exists |
 | Manners re-injection triggers instrumented (constants + backstop), fade-trackable per run | **MEASURED** | audit events + KPI + after-action section; conduct efficacy itself is UNTESTED |
 | Ed25519 authority: verifier cannot forge; tamper/forge reject; boot manifest signable incl. MANNERS.md hash | **MEASURED** | test_day3.py; asymmetric tier, optional cryptography dep |
 
