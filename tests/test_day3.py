@@ -251,6 +251,39 @@ def test_loop_suspends_at_threshold_into_clarification(tmp_path):
     assert "loop.suspended" in [e["kind"] for e in hub.audit.read()]
 
 
+# ------------------------------------------- THE FIX: explicit resume
+def test_suspended_loop_has_no_recovery_path_before_the_fix_now_does(tmp_path):
+    """Was: once suspended, a (context, intent) pair was stuck PERMANENTLY
+    - nothing anywhere ever reset loop_counts, not even a manual path for
+    a human who reviewed the suspension and decided it was a false
+    positive. Restricted-Speed Doctrine's own phrasing ('never self-
+    restores') implies explicit resumption should be possible - it
+    wasn't, at all, before this fix."""
+    hub = make_hub(tmp_path)
+    hub.loop_threshold = 2
+    ctx, intent = "t-loop-1", "lead.captured"
+    for i in range(4):
+        hub.send(env(payload={"n": i}, intent=intent, to="02", ctx=ctx))
+    assert hub.send(env(payload={"n": 99}, intent=intent, to="02", ctx=ctx))["status"] == "suspended", \
+        "still suspended before any explicit resume"
+
+    result = hub.resume_loop_suspension(ctx, intent)
+    assert result["status"] == "resumed"
+    assert result["prior_count"] > hub.loop_threshold
+
+    assert hub.send(env(payload={"n": 100}, intent=intent, to="02", ctx=ctx))["status"] == "ack", \
+        "traffic must actually resume after the explicit human decision"
+    assert "loop.resumed" in [e["kind"] for e in hub.audit.read()], \
+        "the resume itself must be audited, not a silent clear"
+
+
+def test_resuming_a_never_suspended_pair_is_a_safe_noop(tmp_path):
+    hub = make_hub(tmp_path)
+    result = hub.resume_loop_suspension("never-suspended", "lead.captured")
+    assert result["status"] == "resumed"
+    assert result["prior_count"] is None
+
+
 def test_retries_never_inflate_loop_count(tmp_path):
     hub = make_hub(tmp_path)
     hub.loop_threshold = 2

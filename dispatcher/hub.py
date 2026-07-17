@@ -1,9 +1,14 @@
 """dispatcher.hub - Agent 00 as running code (Day 1).
 
-Pipeline per envelope, in doctrine order:
+Pipeline per envelope, in actual code order (fixed 2026-07-17 - this
+docstring previously described a different order than the real code ran):
+  idempotency dedupe -> loop protection (per context+intent threshold) ->
   schema validate -> signature check (authority intents) -> tuple legality
-  (closed track) -> idempotency dedupe -> PERSIST to audit -> sequence
-  assignment -> deliver to registered handler -> ACK (only now).
+  (closed track) -> PERSIST to audit -> sequence assignment -> pre-response-
+  selfcheck exit gate -> deliver to registered handler -> ACK (only now).
+Idempotency runs first deliberately: a retry of an already-acked envelope
+(same envelope_id) is the normal ack-loss case and must dedupe before any
+other check can reject it on grounds that no longer apply to a duplicate.
 Failures never vanish: rejects carry raw reasons; unroutable-but-well-formed
 traffic holds live in the clarification queue (restricted-speed: held is
 acked-received at transport level, never dropped, never advanced).
@@ -177,6 +182,27 @@ class Hub:
 
     def register(self, agent_id: str, handler: Callable[[Envelope], None]):
         self.handlers[agent_id] = handler
+
+    def resume_loop_suspension(self, client_context_id: str, intent: str) -> dict:
+        """Real gap, found 2026-07-17: once a (context, intent) pair
+        crossed loop_threshold, it was suspended PERMANENTLY - nothing
+        anywhere ever reset loop_counts, not even a manual path for a
+        human who reviewed the suspension and decided it wasn't actually
+        a runaway (e.g. a genuinely high-volume, healthy long-running
+        interaction that happened to cross an arbitrary placeholder
+        threshold). Restricted-Speed Doctrine says resumption requires
+        explicit human/dispatcher direction and never self-restores -
+        that phrasing implies resumption IS possible, just never
+        automatic. This is that explicit path: a human decision, not a
+        silent auto-clear, and it's audited like every other override in
+        this hub."""
+        key = (client_context_id, intent)
+        had_count = self.loop_counts.pop(key, None)
+        self.audit.append("loop.resumed",
+                          {"client_context_id": client_context_id,
+                           "intent": intent, "prior_count": had_count})
+        return {"status": "resumed", "client_context_id": client_context_id,
+                "intent": intent, "prior_count": had_count}
 
     def send(self, env: Envelope) -> dict:
         # 0. idempotency FIRST - a retry of an acked envelope (same
