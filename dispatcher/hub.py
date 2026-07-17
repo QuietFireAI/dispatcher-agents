@@ -133,7 +133,26 @@ class Hub:
         results; hub centrality makes this the monitoring point."""
         rec = {"agent": agent_id, "envelope_id": envelope_id,
                "thought": thought, "result": result}
-        from agent_open_mind import taint_check   # pillar = single source
+        try:
+            from agent_open_mind import taint_check   # pillar = single source
+        except ImportError:
+            # Same unarmed discipline as before-turn: pillar absent is
+            # DECLARED on the audit log, once per hub, never silent - and
+            # never a per-message crash. Before this fix, a missing
+            # agent_open_mind package raised ModuleNotFoundError inside
+            # every handler delivery, dead-lettering 100% of swarm traffic
+            # with a generic crash reason (fresh-clone verified 2026-07-17:
+            # 98 test failures, all this one line). Fail-closed must mean
+            # "held and named", not "everything dies undiagnosed".
+            if not getattr(self, "_aom_unarmed_declared", False):
+                self._aom_unarmed_declared = True
+                self.audit.append("agentopenmind.unarmed",
+                                  {"reason": "agent_open_mind package not "
+                                             "installed - taint gate off, "
+                                             "declared not silent"})
+            self.spoke_traces.append(rec)
+            self.audit.append("spoke.trace", rec)
+            return
         gate = taint_check(rec)
         if gate["tainted"]:
             # structural, at the moment of ingestion, not deferred to
