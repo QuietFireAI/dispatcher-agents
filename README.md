@@ -48,7 +48,7 @@ tuple-legality routing, append-only fsynced audit log, HMAC authority
 signatures, boot attestation (hash manifest, fail-closed verification), JIT
 priority classes with live-hold siding, identity side-load loader, KPI
 computation from the log only, after-action generation per schema. Tests are
-doctrine as executable assertions, run against a real 35-route vertical
+doctrine as executable assertions, run against a real 50-route vertical
 track - see README-BUILD.md for the claim-to-test map and EVIDENCE-runtime.md
 for the evidence classes.
 
@@ -56,7 +56,7 @@ for the evidence classes.
 
 | Vertical | Repo | Status |
 |---|---|---|
-| Real-estate listing agent | [listing-agents](https://github.com/QuietFireAI/listing-agents) | v0.17 - 21 agents, 15 playbooks, 35 ratified route tuples, DRAFT priority classes; runtime-driven in the P11 end-to-end demo. First of several. |
+| Real-estate listing agent | [listing-agents](https://github.com/QuietFireAI/listing-agents) | v0.18 - 21 agents, 24 playbooks, 50 ratified route tuples, ratified priority classes (2026-07-10); runtime-driven in the P11 end-to-end demo. First of several. |
 
 ## Quickstart
 
@@ -65,10 +65,10 @@ git clone https://github.com/QuietFireAI/dispatcher-agents
 cd dispatcher-agents
 pip install -e ".[pillars,crypto,dev]"              # core hub is zero-dep; pillars+Ed25519 are extras
 git clone https://github.com/QuietFireAI/listing-agents ../listing-agents
-IDENTITY_DIR=../listing-agents python3 -m pytest tests/       # 78 doctrine tests vs the real 35-route track
+IDENTITY_DIR=../listing-agents python3 -m pytest tests/       # 89 doctrine tests vs the real 50-route track
 IDENTITY_DIR=../listing-agents python3 demo/run_p11_demo.py   # real spokes chain 11 envelopes from 2 signals
 
-# Identity-gated tests target the repo bundled at IDENTITY_DIR (default: a fixture track); point IDENTITY_DIR at listing-agents for the real 35-route run.
+# Identity-gated tests target the repo bundled at IDENTITY_DIR (default: a fixture track); point IDENTITY_DIR at listing-agents for the real 50-route run.
 # The core hub alone installs with plain `pip install -e .` (no extras).
 ```
 

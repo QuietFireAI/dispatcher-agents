@@ -170,7 +170,16 @@ def test_loads_real_listing_identity():
     if ident.vertical != "real-estate-listing-agent":
         pytest.skip("IDENTITY_DIR points at a non-listing identity; "
                     "generic contract test covers it")
-    assert ident.n_routes == 35
+    # Pinned to the live identity, verified via fresh clone 2026-07-16
+    # (listing-agents 6ebade4 / listing-agents-blueprint 944406f). This
+    # number goes stale every time a route is added to the real identity -
+    # it was 35 for a long time and nobody caught the drift because this
+    # test only runs when a sibling listing-agents clone is present at
+    # IDENTITY_DIR (see needs_listing above). If this assertion fails,
+    # check whether it's a real regression or just needs re-pinning to the
+    # new correct count - re-verify via load_identity() directly, don't
+    # just bump the number to make the test pass.
+    assert ident.n_routes == 50
     assert len(ident.agents) == 21
     # Pinned to the live identity. 24 since listing-agents d85ae51
     # (added playbooks P21-P24 and classified them in the DRAFT table).

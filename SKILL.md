@@ -73,7 +73,7 @@ pip install -e ".[pillars,crypto,dev]"   # pillars pulled from source, never ven
 ### Verify before claiming anything works
 
 ```bash
-python -m pytest tests/                  # 78 doctrine tests (identity-gated tests activate with IDENTITY_DIR)
+python -m pytest tests/                  # 89 doctrine tests (identity-gated tests activate with IDENTITY_DIR)
 python demo/baseline_run.py              # must print all six pillar events nonzero
 python tools/kpi_gate.py baseline-out/audit-<id>.jsonl \
     --taints-expected 1 --selfcheck-bait-expected 1

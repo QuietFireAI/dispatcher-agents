@@ -33,8 +33,9 @@ that pillar regressed; stop, report the raw failure. Do not proceed to
 integration on a broken pillar - the set cannot be validated on a bad part.
 
 Then the dispatcher's suite from its clone: `python3 -m pytest tests/ -q`
-EXPECTED: 57 passed. (Identity-dependent tests skip unless IDENTITY_DIR
-points at a listing-agents clone; with it set, still 57.)
+EXPECTED: 89 passed. (Identity-dependent tests activate when IDENTITY_DIR
+points at a listing-agents clone, or when one sits at the conventional
+sibling path - same 89 either way as of 2026-07-16.)
 
 ## PHASE 2 - Six pillars together on the bare dispatcher
 
@@ -88,12 +89,12 @@ identical runs is nondeterminism - report it as a defect.
 ## PHASE 4 - Load the identity, bind the owner
 
     git clone https://github.com/QuietFireAI/listing-agents ../listing-agents
-    IDENTITY_DIR=../listing-agents python3 -m pytest tests/ -q   # still 57
+    IDENTITY_DIR=../listing-agents python3 -m pytest tests/ -q   # 89
     IDENTITY_DIR=../listing-agents python3 demo/run_p11_demo.py
 
-EXPECTED: identity loads 35 routes v0.17 / 21 agents / 15 classes with the
-DRAFT-priority warning surfaced; demo chains 11 envelopes from 2 injected,
-1 taint, 1 human notification.
+EXPECTED: identity loads 50 routes v0.18 / 21 agents / 24 classes, ratified
+(no DRAFT warning - priority.json moved to RATIFIED 2026-07-10); demo chains
+11 envelopes from 2 injected, 1 taint, 1 human notification.
 
 Owner binding (configure spec to the human owner): generate the authority
 keypair and keep the private key OFF the machine that runs spokes -
