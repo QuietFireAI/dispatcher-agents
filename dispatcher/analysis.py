@@ -73,7 +73,7 @@ def score_spoke_traces(hub, drift_threshold: float = 0.4) -> list[dict]:
             if not trace.get("tainted"):
                 # not caught at ingestion (e.g. trace loaded from elsewhere):
                 # the analysis layer is the backstop - flag here
-                hub.queues["integrity.violation"].append(rec)
+                hub.queue_and_notify("integrity.violation", rec)
                 hub.audit.append("agentopenmind.tainted", rec)
             results.append(rec)
             continue

@@ -231,7 +231,14 @@ def test_p11_demo_end_to_end(tmp_path, monkeypatch):
     report = open(path).read()
     assert len(steps) >= 10                         # driver injected only 2;
     #                                       the swarm chained the rest itself
-    assert len(notified) == 1                       # HOT lead reached a human
+    # THE FIX (2026-07-17): this demo deliberately exercises TWO other
+    # notification paths besides the HOT-lead escalation - Spoke03's dark-
+    # trace exhibit (integrity.violation) and the guaranteed-fail selfcheck
+    # model (clarification.request) - both were previously silently queued
+    # with zero active notification, the same bug class as the original
+    # clarification.request dead-lettering fix. All three now correctly
+    # notify.
+    assert len(notified) == 3
     for section in ("## run", "## outcome", "## steps", "## gates",
                     "## deviations", "## escalations", "## errors",
                     "## kpis", "## manners re-injections"):
@@ -375,7 +382,12 @@ def test_real_spokes_chain_hot_and_warm_from_single_signals(tmp_path):
                           "budget": 900_000, "timeline_days": 14,
                           "channel": "call"}))            # 100 -> HOT
     assert nur.enrolled == ["lead-w"]                     # WARM chained to drip
-    assert notified == ["escalation.hot_lead"]            # HOT reached a human
+    # THE FIX (2026-07-17): ingestion-time taint on 03's deliberately-absent
+    # thought now correctly notifies too - previously this was silently
+    # queued to integrity.violation with zero active notification, the
+    # exact same bug class as the original clarification.request dead-
+    # lettering fix, just never applied to this call site until now.
+    assert notified == ["integrity.violation", "escalation.hot_lead"]
     assert len(crm.interactions) == 2                     # both logged
     scored = score_spoke_traces(hub)
     assert sum(1 for t in scored if t.get("tainted")) == 1   # 03's dark trace

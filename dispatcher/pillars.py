@@ -56,7 +56,8 @@ def exit_gate(hub, env, model=None, audience: str = "cold_reader"):
            "audience": audience}
     hub.audit.append("selfcheck.verdict", rec)
     if not verdict.passed:
-        hub.queues["clarification.request"].append(
+        hub.queue_and_notify(
+            "clarification.request",
             {**env.to_record(), "held_by": "pre-response-selfcheck",
              "flagged_line": verdict.line})
     return {"armed": True, **rec}

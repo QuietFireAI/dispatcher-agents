@@ -58,7 +58,7 @@ def receive_transfer(hub, record: dict, verifier) -> dict:
         flag = {"reason": "territory transfer signature absent or invalid - "
                           "refused, contexts NOT adopted, held for review",
                 "contexts": list(record.get("contexts", {}))}
-        hub.queues["integrity.violation"].append(flag)
+        hub.queue_and_notify("integrity.violation", flag)
         hub.audit.append("territory.transfer.refused", flag)
         return {"status": "refused", **flag}
     # persist before adopt (same order as envelope persist-before-deliver)

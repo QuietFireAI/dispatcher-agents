@@ -142,7 +142,7 @@ class Hub:
             flag = {"agent": agent_id, "envelope_id": envelope_id,
                     "tainted": True,
                     "reason": "absent thought trace at ingestion - tainted, held for review"}
-            self.queues["integrity.violation"].append(flag)
+            self.queue_and_notify("integrity.violation", flag)
             self.audit.append("agentopenmind.tainted", flag)
         self.spoke_traces.append(rec)
         self.audit.append("spoke.trace", rec)
@@ -183,6 +183,24 @@ class Hub:
     def register(self, agent_id: str, handler: Callable[[Envelope], None]):
         self.handlers[agent_id] = handler
 
+    def queue_and_notify(self, queue_name: str, record: dict) -> None:
+        """Real gap, found 2026-07-17: the 'append to a queue, then notify
+        the human channel' pattern was hand-reimplemented at 5 separate
+        call sites across this codebase (hub.py's own unknown-route hold,
+        pillars.py's exit_gate FAIL, territory.py's transfer-refusal,
+        analysis.py's tainted-trace backstop, plus the one that WAS fixed
+        - hub.py's 'queue' virtual-destination delivery, the original bug
+        this whole mechanism exists to prevent). Only that one call site
+        ever actually called human_notifier - the other four recreated
+        the exact same silent-queue bug in different code, because the
+        append+notify pairing lived nowhere as a single, reusable unit.
+        Every one of those callers is now updated to call this instead of
+        reimplementing the pattern by hand."""
+        self.queues.setdefault(queue_name, []).append(record)
+        if self.human_notifier is not None:
+            self.human_notifier(queue_name, record)
+            self.audit.append("human.notified", {**record, "queue": queue_name})
+
     def resume_loop_suspension(self, client_context_id: str, intent: str) -> dict:
         """Real gap, found 2026-07-17: once a (context, intent) pair
         crossed loop_threshold, it was suspended PERMANENTLY - nothing
@@ -218,7 +236,7 @@ class Hub:
         key = (env.client_context_id, env.intent)
         self.loop_counts[key] = self.loop_counts.get(key, 0) + 1
         if self.loop_counts[key] > self.loop_threshold:
-            self.queues["clarification.request"].append(env.to_record())
+            self.queue_and_notify("clarification.request", env.to_record())
             self.audit.append("loop.suspended",
                               {"client_context_id": env.client_context_id,
                                "intent": env.intent,
@@ -235,7 +253,7 @@ class Hub:
         # 2. authority signature - the signature, not the sender field, is trust
         if is_authority(env.intent):
             if not self.verify_sig(env):
-                self.queues["integrity.violation"].append(env.to_record())
+                self.queue_and_notify("integrity.violation", env.to_record())
                 self.audit.append("integrity.violation",
                                   {"envelope_id": env.envelope_id,
                                    "reason": "authority intent without verified signature"})
@@ -246,7 +264,7 @@ class Hub:
             if self.signer_registry is not None:
                 v = self.signer_registry.check(env)
                 if not v.ok:
-                    self.queues["integrity.violation"].append(env.to_record())
+                    self.queue_and_notify("integrity.violation", env.to_record())
                     self.audit.append("integrity.violation",
                                       {"envelope_id": env.envelope_id,
                                        "reason": f"signer registry: {v.reason}"})
@@ -270,7 +288,7 @@ class Hub:
                 return self._reject(
                     env, f"tuple illegal: {env.from_agent} -> {env.intent} -> {env.to_agent}")
             # well-formed but unknown route: restricted-speed HOLD, never drop
-            self.queues["clarification.request"].append(env.to_record())
+            self.queue_and_notify("clarification.request", env.to_record())
             self.audit.append("hold.clarification", env.to_record())
             self._reflect(env.envelope_id,
                           f"intent {env.intent!r} not on any track; doctrine says hold live",
@@ -306,14 +324,9 @@ class Hub:
             # and notify immediately - unexpected/unrecognized values
             # deserve the same active-push urgency as an escalation, not a
             # passive list nobody is watching.
-            self.queues.setdefault(env.intent, []).append(env.to_record())
+            self.queue_and_notify(env.intent, env.to_record())
             self.audit.append("hold.queued", {"envelope_id": env.envelope_id,
                                               "intent": env.intent})
-            if self.human_notifier is not None:
-                self.human_notifier(env.intent, env.to_record())
-                self.audit.append("human.notified", {"envelope_id": env.envelope_id,
-                                                      "intent": env.intent,
-                                                      "queue": env.intent})
             return {"status": "held", "queue": env.intent,
                     "envelope_id": env.envelope_id}
         handler = self.handlers.get(env.to_agent)
