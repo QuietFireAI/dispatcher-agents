@@ -189,3 +189,40 @@ def test_core_only_turn_start_unarmed_not_crash(tmp_path, monkeypatch):
     hub.on_turn_start()
     kinds = [e["kind"] for e in hub.audit.read()]
     assert "beforeturn.unarmed" in kinds
+
+
+# ------------- effective-date temporal enforcement (2026-07-17)
+def test_future_effective_date_denies_until_it_arrives():
+    from dispatcher.signer_registry import SignerRegistry
+
+    class _E:
+        intent = "listing.change.authorized"
+        provenance = {"signer": {"signer_login": "jeff", "mfa": True,
+                                 "idp_session_ref": "sess-1"}}
+
+    reg = SignerRegistry([{"intent": "listing.change.authorized",
+                           "signer_login": "jeff", "mfa_required": True,
+                           "effective": "2026-08-01"}])
+    v = reg.check(_E(), today="2026-07-17")
+    assert not v.ok and "not effective until 2026-08-01" in v.reason
+    assert reg.check(_E(), today="2026-08-01").ok
+
+
+def test_missing_or_bad_effective_date_fails_closed():
+    from dispatcher.signer_registry import SignerRegistry
+
+    class _E:
+        intent = "listing.change.authorized"
+        provenance = {"signer": {"signer_login": "jeff", "mfa": True,
+                                 "idp_session_ref": "sess-1"}}
+
+    reg = SignerRegistry([{"intent": "listing.change.authorized",
+                           "signer_login": "jeff", "mfa_required": True}])
+    v = reg.check(_E(), today="2026-07-17")
+    assert not v.ok and "no effective date" in v.reason
+
+    reg2 = SignerRegistry([{"intent": "listing.change.authorized",
+                            "signer_login": "jeff", "mfa_required": True,
+                            "effective": "someday"}])
+    v2 = reg2.check(_E(), today="2026-07-17")
+    assert not v2.ok and "unparseable" in v2.reason

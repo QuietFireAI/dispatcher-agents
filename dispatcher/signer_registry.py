@@ -76,7 +76,20 @@ class SignerRegistry:
                    if not str(e.get("signer_login", "")).startswith("<")]
         return cls(entries)
 
-    def check(self, env) -> SignerVerdict:
+    def check(self, env, today: str | None = None) -> SignerVerdict:
+        """today: ISO date for effective-date enforcement. Defaults to the
+        real system date - this is live authorization, not a simulation
+        seam. Callers with a controlled clock (tests) pass it explicitly.
+
+        Fixed 2026-07-17: the 'effective' field was schema-present,
+        enforcement-absent - check() never read it, so a signer entry
+        dated to take effect next year authorized today. Now: a missing
+        effective date fails closed (an entry that never says when it
+        starts never starts), and a future-dated entry denies until its
+        date arrives."""
+        import datetime
+        today_d = (datetime.date.fromisoformat(today) if today
+                   else datetime.date.today())
         stamp = (env.provenance or {}).get("signer")
         if not isinstance(stamp, dict):
             return SignerVerdict(False, "authority envelope carries no signer "
@@ -94,6 +107,22 @@ class SignerRegistry:
                 if r.get("revoked"):
                     return SignerVerdict(False,
                         f"signer {login!r} is revoked for {env.intent!r}")
+                effective = r.get("effective")
+                if not effective:
+                    return SignerVerdict(False,
+                        f"signer entry for {login!r} has no effective date - "
+                        f"fail closed, an entry that never says when it "
+                        f"starts never starts")
+                try:
+                    eff_d = datetime.date.fromisoformat(str(effective))
+                except ValueError:
+                    return SignerVerdict(False,
+                        f"signer entry for {login!r} has unparseable "
+                        f"effective date {effective!r} - fail closed")
+                if eff_d > today_d:
+                    return SignerVerdict(False,
+                        f"signer {login!r} not effective until {effective} "
+                        f"(today {today_d.isoformat()})")
                 return SignerVerdict(True, "authorized")
         return SignerVerdict(False,
             f"login {login!r} not authorized for intent {env.intent!r}")
