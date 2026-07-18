@@ -7,8 +7,8 @@
  },
  "routing_latency": {
   "n": 3,
-  "max_s": 0.0013403892517089844,
-  "p50_s": 0.0013146400451660156
+  "max_s": 0.002989053726196289,
+  "p50_s": 0.0028116703033447266
  },
  "sequence_gap_incidents": 0,
  "loop_suspensions": 0,
@@ -47,8 +47,8 @@
  "heartbeat": {
   "computable": true,
   "beats": 3,
-  "span_s": 0.025091886520385742,
-  "max_gap_s": 0.014316558837890625
+  "span_s": 0.02885746955871582,
+  "max_gap_s": 0.017910003662109375
  },
  "drift": {
   "hub_reflections_analyzed": 4,
@@ -60,8 +60,8 @@
  "heartbeat_watchdog": {
   "computable": true,
   "beats": 3,
-  "span_s": 0.025091886520385742,
-  "max_gap_s": 0.014316558837890625,
+  "span_s": 0.02885746955871582,
+  "max_gap_s": 0.017910003662109375,
   "gap_incidents": 0,
   "cadence_s": 0.01
  }
