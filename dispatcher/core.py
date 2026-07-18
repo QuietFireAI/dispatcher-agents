@@ -131,6 +131,57 @@ class AuditLog:
             os.fsync(f.fileno())
         self._prev = eh
 
+    def anchor(self) -> dict:
+        """Export an external anchor: {entries, head_hash}. verify_chain
+        detects tamper WITHIN the file, but wholesale deletion and
+        regeneration from a fresh GENESIS is undetectable from inside -
+        the regenerated chain is internally consistent. An anchor stored
+        OUTSIDE the file (separate store, signed commit message, printed
+        in a handoff) closes that: a regenerated log cannot reproduce the
+        anchored head hash at the anchored position. Gap named in the
+        2026-07-17 review, closed 2026-07-18."""
+        n = 0
+        if os.path.exists(self.path):
+            with open(self.path) as f:
+                n = sum(1 for line in f if line.strip())
+        return {"entries": n, "head_hash": self._prev}
+
+    def verify_anchor(self, anchor: dict) -> dict:
+        """Verify a previously exported anchor against the current file.
+        The entry at the anchored position must carry exactly the
+        anchored hash, and the chain up to it must verify. Returns
+        {ok, reason}. Fail-closed: a malformed anchor is a failure, not
+        a pass."""
+        n, head = anchor.get("entries"), anchor.get("head_hash")
+        if not isinstance(n, int) or n < 0 or not head:
+            return {"ok": False, "reason": "malformed anchor - fail closed"}
+        if n == 0:
+            return {"ok": head == self.GENESIS,
+                    "reason": None if head == self.GENESIS
+                    else "empty-log anchor must carry GENESIS"}
+        chain = self.verify_chain()
+        if not chain["ok"] and chain["break_at"] is not None \
+                and chain["break_at"] <= n:
+            return {"ok": False,
+                    "reason": f"chain breaks at line {chain['break_at']}, "
+                              f"before the anchored position {n}"}
+        if not os.path.exists(self.path):
+            return {"ok": False,
+                    "reason": f"anchor names {n} entries; log file absent - "
+                              f"wholesale deletion"}
+        with open(self.path) as f:
+            lines = [l for l in f if l.strip()]
+        if len(lines) < n:
+            return {"ok": False,
+                    "reason": f"anchor names {n} entries; log has only "
+                              f"{len(lines)} - the anchored history is gone"}
+        actual = json.loads(lines[n - 1]).get("entry_hash")
+        if actual != head:
+            return {"ok": False,
+                    "reason": f"entry {n} hash mismatch - the log was "
+                              f"regenerated or rewritten past the anchor"}
+        return {"ok": True, "reason": None}
+
     def verify_chain(self) -> dict:
         """Walk the file and recompute every link. Returns
         {ok, entries, break_at} - break_at names the first bad line (1-based)."""

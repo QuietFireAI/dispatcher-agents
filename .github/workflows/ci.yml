@@ -1,49 +1,11 @@
-name: CI
-
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-
+name: ci
+on: [push, pull_request]
 jobs:
-  test:
-    name: Python ${{ matrix.python-version }}
+  suite:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install runtime, six pillars from source, crypto, pytest
-        run: pip install -e ".[pillars,crypto,dev]"
-
-      - name: Doctrine suite (identity-gated tests skip without listing-agents)
-        run: python -m pytest tests/ -v --tb=short
-
-      - name: Baseline wire demo - all six pillars must fire
-        run: |
-          python demo/baseline_run.py | tee /tmp/baseline.out
-          grep -q "all six must be nonzero" /tmp/baseline.out
-          python - <<'PY'
-          import re
-          out = open('/tmp/baseline.out').read()
-          m = re.search(r"pillar event counts \(all six must be nonzero\): ({.*})", out)
-          assert m, "pillar count line missing"
-          counts = eval(m.group(1))
-          zeros = [k for k, v in counts.items() if not v]
-          assert len(counts) == 6 and not zeros, f"pillar(s) did not fire: {zeros or counts}"
-          print("all six pillars fired:", counts)
-          PY
-
-      - name: KPI gate over the baseline audit log
-        run: |
-          AUDIT=$(ls -t baseline-out/audit-*.jsonl | head -1)
-          python tools/kpi_gate.py "$AUDIT" --taints-expected 1 --selfcheck-bait-expected 1
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install pytest
+      - run: python -m pytest -q

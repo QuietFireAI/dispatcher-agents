@@ -226,3 +226,39 @@ def test_missing_or_bad_effective_date_fails_closed():
                             "effective": "someday"}])
     v2 = reg2.check(_E(), today="2026-07-17")
     assert not v2.ok and "unparseable" in v2.reason
+
+
+# ------------- external anchor (2026-07-18): regeneration is now detectable
+def test_anchor_detects_wholesale_regeneration(tmp_path):
+    import os
+    from dispatcher.core import AuditLog
+    p = os.path.join(str(tmp_path), "a.jsonl")
+    log = AuditLog(p)
+    for i in range(4):
+        log.append("evt", {"n": i})
+    anchor = log.anchor()
+    assert anchor["entries"] == 4
+    assert log.verify_anchor(anchor)["ok"]
+    # attacker deletes the log and regenerates a clean chain from GENESIS
+    os.remove(p)
+    forged = AuditLog(p)
+    for i in range(4):
+        forged.append("evt", {"n": i, "forged": True})
+    assert forged.verify_chain()["ok"], "regenerated chain IS internally valid"
+    v = forged.verify_anchor(anchor)
+    assert not v["ok"] and "regenerated" in v["reason"]
+
+
+def test_anchor_detects_truncation_and_malformed_anchor(tmp_path):
+    import os, json
+    from dispatcher.core import AuditLog
+    p = os.path.join(str(tmp_path), "a.jsonl")
+    log = AuditLog(p)
+    for i in range(5):
+        log.append("evt", {"n": i})
+    anchor = log.anchor()
+    lines = open(p).read().splitlines()
+    open(p, "w").write("\n".join(lines[:3]) + "\n")
+    v = AuditLog(p).verify_anchor(anchor)
+    assert not v["ok"] and "anchored history is gone" in v["reason"]
+    assert not AuditLog(p).verify_anchor({"entries": "x"})["ok"]
