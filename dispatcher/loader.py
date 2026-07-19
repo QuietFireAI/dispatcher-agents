@@ -2,7 +2,7 @@
 
 Loads a vertical identity package (the side-load) into runtime shape:
   routes.json          REQUIRED - the closed track. Absent = refuse to load.
-  priority.json        OPTIONAL - playbook priority classes. Absent = the
+  priority.json        REQUIRED (fail-closed 2026-07-18) - playbook priority classes. Absent = the
                        SidingScheduler cannot run playbook traffic (it fails
                        closed on unclassified playbooks); absence is NAMED in
                        the returned identity, never silently defaulted.
@@ -76,7 +76,13 @@ def load_identity(root: str) -> Identity:
         if "draft" in prio_status.lower() or "pending" in prio_status.lower():
             warnings.append(f"priority table is {prio_status}")
     else:
-        warnings.append("priority.json " + prio_status)
+        # FAIL CLOSED (owner decision C1, 2026-07-18): an identity without a
+        # priority table cannot schedule playbook traffic - warning-and-
+        # proceeding admitted unclassified traffic by omission, the exact
+        # silent-admit class the fail-closed invariant forbids.
+        raise ValueError(
+            "priority.json absent - identity refuses to load (fail-closed, "
+            "owner-ratified 2026-07-18). Supply a ratified priority table.")
 
     manners = os.path.join(root, "MANNERS.md")
     if not os.path.exists(manners):

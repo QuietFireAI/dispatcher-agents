@@ -601,3 +601,19 @@ def test_listing_pinned_test_skips_cleanly_on_other_identities():
     # points elsewhere, the generic contract test is the one that must hold.
     # This test documents that split so the suite reads correctly.
     assert True
+
+
+def test_loader_fails_closed_on_absent_priority(tmp_path):
+    """Owner decision C1 (2026-07-18): absent priority.json refuses to load
+    - unclassified traffic does not run; warn-and-proceed was silent-admit."""
+    import json, os, pytest
+    from dispatcher.loader import load_identity
+    root = tmp_path / "ident"
+    (root / "identity").mkdir(parents=True)
+    (root / "01-x").mkdir()
+    (root / "01-x" / "SKILL.md").write_text("# x")
+    json.dump({"vertical": "t", "version": "0", "routes": [
+        {"intent": "a.b", "senders": ["01"], "receivers": ["01"]}]},
+        open(root / "identity" / "routes.json", "w"))
+    with pytest.raises(ValueError, match="fail-closed"):
+        load_identity(str(root))

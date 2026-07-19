@@ -16,7 +16,7 @@ this one covers the chassis every identity rides on.
 | Twilio credentials | `dispatcher/notifier.py` (env vars) | **PLACEHOLDER - declared** | Real implementation; placeholder creds fail with a genuine 401, never a fake success. |
 | SMS destination | `dispatcher/notifier.py` (+1-555-555-0100) | **PLACEHOLDER - declared** | NANP fiction block; replace at deployment. |
 | `config/authority_signers.json` | this repo | **UNRATIFIED TEMPLATE - fails closed** | Loader refuses to arm on UNRATIFIED status, zero entries, missing mfa_required, or placeholder dates. Identity repos ship their own ratified versions. |
-| `priority.json` absent-file behavior | `dispatcher/priority.py` | **KNOWN SOFT SPOT** | Warns-and-proceeds; should fail closed. Tracked on the roadmap since 2026-07. |
+| `priority.json` absent-file behavior | `dispatcher/loader.py` | **FIXED - FAIL CLOSED (owner decision C1, 2026-07-18)** | Absent priority table now refuses to load with a named error; regression test in tests/test_day3.py. Propagated to all vendored cores same day. |
 
 ---
 
