@@ -92,4 +92,4 @@ after-action schema).
 
 ## License
 
-MIT - [QuietFireAI](https://github.com/QuietFireAI)
+Apache License 2.0 - see LICENSE. Free for broad adoption and contribution. Domain identity packages that run on this chassis are licensed separately (QuietFire Identity License).
