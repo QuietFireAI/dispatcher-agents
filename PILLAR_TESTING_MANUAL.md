@@ -35,7 +35,7 @@ integration on a broken pillar - the set cannot be validated on a bad part.
 Then the dispatcher's suite from its clone: `python3 -m pytest tests/ -q`
 EXPECTED: 89 passed. (Identity-dependent tests activate when IDENTITY_DIR
 points at a listing-agents clone, or when one sits at the conventional
-sibling path - same 89 either way as of 2026-07-16.)
+sibling path - same 104 either way as of 2026-07-19.)
 
 ## PHASE 2 - Six pillars together on the bare dispatcher
 
