@@ -22,7 +22,8 @@ Pillar hook points (Day 2 wiring targets, real seams today):
 """
 from __future__ import annotations
 from typing import Callable, Optional
-from .core import Envelope, Routes, AuditLog
+from .core import Envelope, Routes, AuditLog, AUDIENCE_GATED, AUDIENCE_DEFAULT
+from .absolute_signal import rebuttal
 
 AUTHORITY_INTENTS = {"listing.change.authorized", "config.update"}
 
@@ -89,6 +90,11 @@ class Hub:
         self.handlers: dict[str, Callable[[Envelope], None]] = {}
         self.seen_ids: set[str] = set()
         self.seq: dict[str, int] = {}
+        # ABSOLUTE SIGNAL: envelopes held by the disclosure gate, by id, so a
+        # signed release names exactly one. released_ids marks the ones a human
+        # key has cleared, so the re-send skips the gate for that id only.
+        self._absolute_holds: dict[str, Envelope] = {}
+        self._absolute_released: set[str] = set()
         self.queues: dict[str, list] = {
             "clarification.request": [], "integrity.violation": [],
             "escalation.legal_line": [], "escalation.hot_lead": [],
@@ -202,6 +208,56 @@ class Hub:
     def register(self, agent_id: str, handler: Callable[[Envelope], None]):
         self.handlers[agent_id] = handler
 
+    def release_disclosure(self, auth: Envelope) -> dict:
+        """The KEY. A signed authorization that clears exactly one held
+        outbound message. It is the disclosure twin of the execution-authority
+        path and reuses the SAME trust checks: crypto signature (verify_sig,
+        fail-closed to False) plus signer registry (IdP+MFA) when armed. There
+        is no weaker path - a disclosure release is an authority action.
+
+        auth.intent must be 'disclosure.authority' (so is_authority() routes it
+        through the signature gate) and auth.payload['held_envelope_id'] must
+        name a currently-held envelope. On success the original is re-sent once,
+        skips the gate for that id only, and the authorization lands on the
+        hash chain. Fail-closed at every branch: unsigned, unknown id, or a
+        registry rejection releases nothing."""
+        if auth.intent != "disclosure.authority":
+            return self._reject(auth, "release requires intent "
+                                      "'disclosure.authority'")
+        # 1. signature - identical bar to execution authority
+        if not self.verify_sig(auth):
+            self.queue_and_notify("integrity.violation", auth.to_record())
+            self.audit.append("integrity.violation",
+                              {"envelope_id": auth.envelope_id,
+                               "reason": "disclosure.authority without "
+                                         "verified signature"})
+            return self._reject(auth, "unverified signature on disclosure release")
+        # 2. signer identity when a registry is armed
+        if self.signer_registry is not None:
+            v = self.signer_registry.check(auth)
+            if not v.ok:
+                self.queue_and_notify("integrity.violation", auth.to_record())
+                self.audit.append("integrity.violation",
+                                  {"envelope_id": auth.envelope_id,
+                                   "reason": f"signer registry: {v.reason}"})
+                return self._reject(auth, f"signer registry: {v.reason}")
+        # 3. the named held envelope must exist and still be held
+        held_id = auth.payload.get("held_envelope_id")
+        original = self._absolute_holds.get(held_id)
+        if original is None:
+            return self._reject(auth, f"no held envelope {held_id!r} to release")
+        # 4. arm the one-shot release and re-send the ORIGINAL. The gate will
+        # see the released id, pass it once, and consume it. seen_ids on the
+        # original id also guards replay: a message already delivered cannot be
+        # re-completed by a second release.
+        self._absolute_holds.pop(held_id, None)
+        self._absolute_released.add(held_id)
+        self.audit.append("disclosure.authorized",
+                          {"held_envelope_id": held_id,
+                           "authorized_by_envelope": auth.envelope_id,
+                           "intent": original.intent})
+        return self.send(original)
+
     def queue_and_notify(self, queue_name: str, record: dict) -> None:
         """Real gap, found 2026-07-17: the 'append to a queue, then notify
         the human channel' pattern was hand-reimplemented at 5 separate
@@ -314,6 +370,49 @@ class Hub:
                           "held in clarification.request")
             return {"status": "held", "queue": "clarification.request",
                     "envelope_id": env.envelope_id}
+        # 3.5 ABSOLUTE SIGNAL, disclosure half - the outbound gate.
+        # A message legal on the closed track can still leak a position. Any
+        # route leaving to `external` carries an audience class; counterparty
+        # and public destinations hold for HITL BEFORE persist/delivery. The
+        # principal (the party the identity serves) and internal/human routes
+        # pass untouched. Fail-closed: an external route with no class resolves
+        # to counterparty upstream in Routes, so absence of a label holds.
+        if env.to_agent == "external":
+            audience = self.routes.audience_for(env.intent) or AUDIENCE_DEFAULT
+            # a human key already cleared THIS envelope id: the re-send passes
+            # the gate once. It cannot be reused - the id is consumed here and
+            # the original's idempotency (seen_ids) blocks any further replay.
+            if env.envelope_id in self._absolute_released:
+                self._absolute_released.discard(env.envelope_id)
+                self.audit.append("absolute_signal.released", {
+                    "envelope_id": env.envelope_id, "intent": env.intent,
+                    "audience": audience})
+            elif audience in AUDIENCE_GATED:
+                payload = rebuttal(env.intent, audience, env.client_context_id)
+                if not self.routes.audience_is_verified(env.intent):
+                    payload["audience_provisional"] = True
+                # keep the ORIGINAL envelope, keyed by id, so a later signed
+                # release names exactly this message and nothing else. A queue
+                # scan could match the wrong same-intent hold; an id lookup
+                # cannot.
+                self._absolute_holds[env.envelope_id] = env
+                self.queue_and_notify("clarification.request", {
+                    **env.to_record(), "absolute_signal": payload})
+                self.audit.append("absolute_signal.hold", {
+                    "envelope_id": env.envelope_id,
+                    "intent": env.intent,
+                    "audience": audience,
+                    "audience_verified":
+                        self.routes.audience_is_verified(env.intent),
+                    "signal_sha256": payload["signal_sha256"]})
+                self._reflect(
+                    env.envelope_id,
+                    f"outbound to {audience!r} carries position risk; "
+                    f"absolute signal holds for human authorization",
+                    "held: absolute_signal")
+                return {"status": "held", "queue": "clarification.request",
+                        "reason": "absolute_signal", "audience": audience,
+                        "envelope_id": env.envelope_id}
         # 4. PERSIST - before delivery, always
         self.seen_ids.add(env.envelope_id)
         env.sequence = self.seq[env.client_context_id] = \
