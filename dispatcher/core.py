@@ -11,7 +11,7 @@ Spec sources: DISPATCHER_CORE.md, 00-dispatcher/SKILL.md, SWARM.md v0.16.
 """
 from __future__ import annotations
 import hashlib
-import json, os, time, uuid
+import json, os, threading, time, uuid
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -145,6 +145,7 @@ class AuditLog:
     def __init__(self, path: str):
         self.path = path
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self._lock = threading.Lock()
         self._prev = self._recover_tip()
 
     def _recover_tip(self) -> str:
@@ -170,16 +171,17 @@ class AuditLog:
         # ts/kind/chain fields. Without this, any splatted untrusted dict (see
         # Hub.escalate) could forge or erase an event kind - the audit log is
         # the single source of truth, so its framing is not caller-writable.
-        body = {**record, "ts": time.time(), "kind": kind}
-        for k in ("prev_hash", "entry_hash"):
-            body.pop(k, None)
-        eh = self._entry_hash(body, self._prev)
-        line = json.dumps({**body, "prev_hash": self._prev, "entry_hash": eh})
-        with open(self.path, "a") as f:
-            f.write(line + "\n")
-            f.flush()
-            os.fsync(f.fileno())
-        self._prev = eh
+        with self._lock:
+            body = {**record, "ts": time.time(), "kind": kind}
+            for k in ("prev_hash", "entry_hash"):
+                body.pop(k, None)
+            eh = self._entry_hash(body, self._prev)
+            line = json.dumps({**body, "prev_hash": self._prev, "entry_hash": eh})
+            with open(self.path, "a") as f:
+                f.write(line + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            self._prev = eh
 
     def anchor(self) -> dict:
         """Export an external anchor: {entries, head_hash}. verify_chain
