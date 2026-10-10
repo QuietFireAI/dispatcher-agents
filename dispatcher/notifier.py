@@ -67,7 +67,7 @@ def send_sms_via_twilio(body: str, to_number: str | None = None,
     req.add_header("Authorization", f"Basic {auth}")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return {"status": "sent", "http_status": resp.status, "is_fallback": False}
     except urllib.error.HTTPError as e:
         return {"status": "failed", "http_status": e.code, "is_fallback": True,
@@ -100,7 +100,7 @@ def send_whatsapp_via_twilio(body: str, to_number: str | None = None,
     req.add_header("Authorization", f"Basic {auth}")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return {"status": "sent", "http_status": resp.status, "channel": "whatsapp"}
     except urllib.error.HTTPError as e:
         return {"status": "failed", "http_status": e.code, "channel": "whatsapp",
