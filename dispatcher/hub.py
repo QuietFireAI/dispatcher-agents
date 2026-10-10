@@ -88,6 +88,22 @@ class Hub:
             self.audit.append("splitvantage.unarmed",
                               {"scope": "boot", "reason": "no reviewer pair "
                                "configured - second opinion off, declared not silent"})
+        # JEV coprocessor readiness declaration (declared not silent)
+        jev_key = os.environ.get("JEV_API_KEY")
+        if not jev_key or jev_key.startswith("YOUR_") or jev_key == "PLACEHOLDER":
+            self.audit.append("jev.unarmed_fallback", {
+                "scope": "boot",
+                "coprocessor_status": "FALLBACK_LOCAL_RULES",
+                "is_fallback": True,
+                "reason": "JEV_API_KEY unconfigured - operating under local deterministic fallback rules, declared not silent"
+            })
+        else:
+            self.audit.append("jev.armed_live", {
+                "scope": "boot",
+                "coprocessor_status": "LIVE_JEV_API",
+                "is_fallback": False,
+                "endpoint": os.environ.get("JEV_ENDPOINT_URL", "https://api.typesafe.ai/v1/decisions")
+            })
         self.handlers: dict[str, Callable[[Envelope], None]] = {}
         self.seen_ids: set[str] = set()
         self.seq: dict[str, int] = {}

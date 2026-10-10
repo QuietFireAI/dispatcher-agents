@@ -68,12 +68,14 @@ def send_sms_via_twilio(body: str, to_number: str | None = None,
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return {"status": "sent", "http_status": resp.status}
+            return {"status": "sent", "http_status": resp.status, "is_fallback": False}
     except urllib.error.HTTPError as e:
-        return {"status": "failed", "http_status": e.code,
+        return {"status": "failed", "http_status": e.code, "is_fallback": True,
+                "fallback_reason": f"Twilio API error {e.code}: failover to local audit ledger",
                 "body": e.read().decode(errors="replace")[:300]}
     except Exception as e:
-        return {"status": "failed", "error": repr(e)}
+        return {"status": "failed", "is_fallback": True,
+                "fallback_reason": f"Network exception: {e!r}", "error": repr(e)}
 
 
 def send_whatsapp_via_twilio(body: str, to_number: str | None = None,
