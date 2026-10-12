@@ -33,9 +33,9 @@ that pillar regressed; stop, report the raw failure. Do not proceed to
 integration on a broken pillar - the set cannot be validated on a bad part.
 
 Then the dispatcher's suite from its clone: `python3 -m pytest tests/ -q`
-EXPECTED: 131 passed, 5 skipped. (The 5 identity-dependent tests activate
+EXPECTED: 132 passed, 5 skipped. (The 5 identity-dependent tests activate
 when IDENTITY_DIR points at a listing-assistants clone, or when one sits at
-the conventional sibling path `../listing-assistants` - then 136 passed, as
+the conventional sibling path `../listing-assistants` - then 137 passed, as
 of 2026-10-12.)
 
 ## PHASE 2 - Six pillars together on the bare dispatcher
@@ -90,7 +90,7 @@ identical runs is nondeterminism - report it as a defect.
 ## PHASE 4 - Load the identity, bind the owner
 
     git clone https://github.com/QuietFireAI/listing-assistants ../listing-assistants
-    IDENTITY_DIR=../listing-assistants python3 -m pytest tests/ -q   # 136
+    IDENTITY_DIR=../listing-assistants python3 -m pytest tests/ -q   # 137
     IDENTITY_DIR=../listing-assistants python3 demo/run_p11_demo.py
 
 EXPECTED: identity loads 52 routes v0.19 / 21 agents / 24 classes, ratified

@@ -467,11 +467,20 @@ class Hub:
                     return {"status": "held", "queue": "clarification.request",
                             "reason": "absolute_signal", "audience": audience,
                             "envelope_id": env.envelope_id}
-            # 4. PERSIST - before delivery, always
+            # 4. PERSIST - before delivery, always. The id is marked seen and
+            # the sequence committed only after the audit write succeeds
+            # (fixed 2026-10-12): they used to be set first, so a failed
+            # write left the id "seen" and a retry of the same envelope was
+            # answered "duplicate" and never delivered.
+            seq = self.seq.get(env.client_context_id, 0) + 1
+            env.sequence = seq
+            try:
+                self.audit.append("envelope.persisted", env.to_record())
+            except Exception:
+                env.sequence = None   # not persisted: no sequence, not seen
+                raise
+            self.seq[env.client_context_id] = seq
             self.seen_ids.add(env.envelope_id)
-            env.sequence = self.seq[env.client_context_id] = \
-                self.seq.get(env.client_context_id, 0) + 1
-            self.audit.append("envelope.persisted", env.to_record())
             # 5. pre-response-selfcheck exit gate (auto when armed) - a FAIL
             # verdict holds the envelope live in clarification: persisted,
             # never delivered, never acked, flagged line on the log.
