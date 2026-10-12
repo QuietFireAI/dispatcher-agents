@@ -13,7 +13,8 @@ Ledger wins; README is a bug.
 | KPIs computable only from audit log; uninstrumented KPIs declared, never estimated | MEASURED | test_analysis_kpi.py + demo report shows NOT INSTRUMENTED fields |
 | JIT class contention: higher sides lower live, auto-resume, class beats arrival | MEASURED | test_day3.py siding tests; doctrine text → executable assertions |
 | P11 speed-to-lead runs end-to-end on the runtime (real spokes, real identity) | MEASURED | test_p11_demo_end_to_end; after-action report generated from log only |
-| HMAC signature layer sufficient for single-principal authority | DESIGN CLAIM | symmetric-key limitation stated in module; Ed25519 = upgrade path, untested here |
+| Authority signatures are Ed25519 only and cover provenance, so a signer stamp swapped after signing fails verification (HMAC tier removed 2026-10-12) | MEASURED | test_signer_chain.py stamp-swap and provenance-change tests (both fail when provenance is left out of the signed bytes); test_day3.py signature tests |
+| One hub delivers one envelope at a time; separate hubs run side by side; nested sends from many threads finish | MEASURED | tests/test_hub_lock.py; 8 x 0.5 s deliveries: 4.02 s on one hub, 0.51 s on eight hubs (2026-10-12) |
 | Tuple-level runtime enforcement prevents the defect class that survived 4 verification passes | HYPOTHESIS | regression test proves detection; prevention-in-production pending Jeff's A/B (metrics in AFTER_ACTION schema) |
 | Boot attestation detects drift between reviewed and running code | MEASURED (detection) / DESIGN CLAIM (authenticity) | tamper/absence/unattested-file tests; manifest unsigned until deployment wiring |
 | Stub-spoke demo latencies (~0.6ms routing) generalize to real spokes | POSITION | in-process no-op handlers; real-spoke numbers require Jeff's runtime, not claimed |

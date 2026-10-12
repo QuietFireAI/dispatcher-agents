@@ -66,7 +66,7 @@ def attest_boot(hub, package_dir: str, routes_path: str,
                 extra_files: list[str] | None = None,
                 signer=None) -> dict:
     """Build the manifest, sign it if an authority signer is supplied
-    (Ed25519Signer or HmacSigner via .sign_bytes), and audit-log it.
+    (Ed25519Signer, via .sign_bytes), and audit-log it.
     An unsigned attestation is integrity-only - stated in the event."""
     manifest = build_manifest(package_dir, routes_path, extra_files)
     record = {"manifest": manifest,

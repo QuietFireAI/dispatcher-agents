@@ -1,4 +1,4 @@
-"""dispatcher.core - the TelsonBase dispatcher message core (Day 1).
+"""dispatcher.core - the dispatcher message core (Day 1).
 
 Doctrine encoded as executable behavior:
 - An ack is a factual claim: issued only after persist (audit) AND delivery.

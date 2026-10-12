@@ -13,10 +13,8 @@ import pytest
 from dispatcher.core import Envelope, Routes, AuditLog
 from dispatcher.hub import Hub, is_authority
 from dispatcher.signer_registry import SignerRegistry
-from dispatcher.signatures import HmacSigner
+from dispatcher.signatures import Ed25519Signer
 from dispatcher.priority import SidingScheduler
-
-KEY = b"k" * 32
 
 
 def _routes(tmp_path):
@@ -114,7 +112,7 @@ def test_registry_refuses_zero_entries_and_no_mfa():
 
 # ------------------------------------------------------------ hub enforcement
 def _armed_hub(tmp_path):
-    signer = HmacSigner(KEY)
+    signer = Ed25519Signer()
     hub = Hub(_routes(tmp_path), AuditLog(str(tmp_path / "a.jsonl")),
               signature_verifier=signer.verifier(),
               signer_registry=_registry())
@@ -149,7 +147,7 @@ def test_bad_stamps_reject_with_reason(tmp_path, stamp, frag):
 
 
 def test_unarmed_is_audited_not_silent(tmp_path):
-    signer = HmacSigner(KEY)
+    signer = Ed25519Signer()
     hub = Hub(_routes(tmp_path), AuditLog(str(tmp_path / "a.jsonl")),
               signature_verifier=signer.verifier())  # no registry
     hub.register("10", lambda e: None)
@@ -162,7 +160,7 @@ def test_revoked_login_rejected(tmp_path):
     reg = SignerRegistry([{"intent": "pay.authority", "signer_login": "jeff",
                            "idp": "okta", "mfa_required": True,
                            "effective": "2026-07-11", "revoked": "2026-07-12"}])
-    signer = HmacSigner(KEY)
+    signer = Ed25519Signer()
     hub = Hub(_routes(tmp_path), AuditLog(str(tmp_path / "a.jsonl")),
               signature_verifier=signer.verifier(), signer_registry=reg)
     hub.register("10", lambda e: None)
@@ -262,3 +260,30 @@ def test_anchor_detects_truncation_and_malformed_anchor(tmp_path):
     v = AuditLog(p).verify_anchor(anchor)
     assert not v["ok"] and "anchored history is gone" in v["reason"]
     assert not AuditLog(p).verify_anchor({"entries": "x"})["ok"]
+
+
+# ------------------------------------------- signer stamp is signed (J10, D1)
+def test_swapping_the_signer_stamp_after_signing_breaks_the_signature(tmp_path):
+    """Before 2026-10-12 provenance was not in the signed bytes: an envelope
+    signed with an unauthorized stamp could have its stamp swapped for an
+    authorized one in transit and still verify."""
+    hub, signer = _armed_hub(tmp_path)
+    env = _env(signer={"signer_login": "mallory", "idp_session_ref": "s", "mfa": True})
+    signer.sign(env)
+    env.provenance["signer"] = dict(STAMP_OK)            # swapped in transit
+    r = hub.send(env)
+    assert r["status"] == "reject" and "signature" in r["reason"]
+    assert not any(e["kind"] == "signer.verified" for e in hub.audit.read())
+
+
+def test_any_provenance_change_after_signing_breaks_the_signature(tmp_path):
+    hub, signer = _armed_hub(tmp_path)
+    env = _env(signer=STAMP_OK)
+    signer.sign(env)
+    env.provenance["source"] = "somewhere-else"
+    assert hub.send(env)["status"] == "reject"
+
+
+def test_shared_secret_tier_is_gone():
+    import dispatcher.signatures as sig
+    assert not hasattr(sig, "HmacSigner")

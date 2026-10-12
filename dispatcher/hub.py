@@ -19,6 +19,17 @@ Pillar hook points (Day 2 wiring targets, real seams today):
                      format open-mind's Comparator consumes (thought vs action)
   ingest_spoke_trace -> agent-open-mind: hub-central monitoring of what spokes
                      THOUGHT, not just what they sent
+
+Concurrency (stated 2026-10-12, J10): one Hub delivers one envelope at a
+time. send() holds a reentrant lock from dedupe through delivery, so a
+handler's own nested sends run inside that delivery and a spoke, which keeps
+plain dict state, is never entered by two threads at once. The cost: eight
+threads each sending a 0.5 s delivery to one hub take about 4 s. Separate
+Hub instances (one per office, each with its own audit log) share no lock
+and run side by side. A lock per client context is not used because nested
+delivery is synchronous: two threads crossing contexts in opposite
+directions would each hold the lock the other needs. tests/test_hub_lock.py
+pins all three.
 """
 import os
 import threading
@@ -88,21 +99,28 @@ class Hub:
             self.audit.append("splitvantage.unarmed",
                               {"scope": "boot", "reason": "no reviewer pair "
                                "configured - second opinion off, declared not silent"})
-        # JEV coprocessor readiness declaration (declared not silent)
+        # JEV key declaration at boot (declared not silent). The hub itself
+        # never calls JEV; an identity's decision adapter does, under that
+        # identity's own rules (listing-assistants: only on the broker's
+        # signed opt-in). So a key in the environment is reported as present,
+        # never as "live". Changed 2026-10-12 (J10): the line used to be
+        # jev.armed_live / LIVE_JEV_API whenever the variable was set.
         jev_key = os.environ.get("JEV_API_KEY")
         if not jev_key or jev_key.startswith("YOUR_") or jev_key == "PLACEHOLDER":
             self.audit.append("jev.unarmed_fallback", {
                 "scope": "boot",
                 "coprocessor_status": "FALLBACK_LOCAL_RULES",
                 "is_fallback": True,
-                "reason": "JEV_API_KEY unconfigured - operating under local deterministic fallback rules, declared not silent"
+                "reason": "JEV_API_KEY unconfigured - no live JEV call is possible; "
+                          "decisions use the identity's local rules"
             })
         else:
-            self.audit.append("jev.armed_live", {
+            self.audit.append("jev.key_present", {
                 "scope": "boot",
-                "coprocessor_status": "LIVE_JEV_API",
-                "is_fallback": False,
-                "endpoint": os.environ.get("JEV_ENDPOINT_URL", "https://api.typesafe.ai/v1/decisions")
+                "coprocessor_status": "KEY_PRESENT",
+                "endpoint": os.environ.get("JEV_ENDPOINT_URL", "https://api.typesafe.ai/v1/decisions"),
+                "reason": "JEV_API_KEY is set; whether decisions go to live JEV is "
+                          "up to the identity's decision adapter and its opt-in"
             })
         self.handlers: dict[str, Callable[[Envelope], None]] = {}
         self.seen_ids: set[str] = set()

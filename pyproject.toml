@@ -17,7 +17,8 @@ requires-python = ">=3.10"
 # behavior and FAILS LOUDLY against any stale pillar. That is intended.
 
 [project.optional-dependencies]
-# The runtime CORE (dispatcher.core, dispatcher.hub) is zero-dependency.
+# The routing CORE (dispatcher.core, dispatcher.hub) is zero-dependency;
+# signing and verifying authority envelopes needs [crypto].
 # dispatcher.pillars and dispatcher.analysis import the six pillars from
 # source (never vendored). Install them with:  pip install -e ".[pillars]"
 # This is what the test suite and the P11 demo require.
@@ -29,7 +30,7 @@ pillars = [
     "pre-response-selfcheck @ git+https://github.com/QuietFireAI/pre-response-selfcheck",
     "splitvantage @ git+https://github.com/QuietFireAI/splitvantage",
 ]
-# Ed25519 asymmetric authority tier only. HMAC tier stays zero-dep.
+# Ed25519 authority signatures (the only signing tier since 2026-10-12).
 crypto = ["cryptography>=42"]
 dev = ["pytest>=7"]
 

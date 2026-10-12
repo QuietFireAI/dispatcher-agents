@@ -1,26 +1,29 @@
-"""Envelope signatures - Day 3.
+"""Envelope signatures - Ed25519 only.
 
-Replaces Day 1's deny-all placeholder verifier with real verification:
-HMAC-SHA256 over a canonical serialization of the envelope's identity-bearing
-fields. Constant-time comparison. Stdlib only - the package keeps its
-zero-dependency property.
+The authority holds a private key and signs; the hub holds only the public
+key and verifies. A party that can verify cannot sign. Requires the
+`cryptography` package (`pip install -e ".[crypto]"`); the import is
+deferred, so routing, the audit log and every unsigned lane run without it.
 
-Canonical fields: envelope_id, from_agent, to_agent, intent,
-client_context_id, payload (sorted-key JSON). sequence is EXCLUDED - 
-signatures are applied by the sender, sequence is stamped by the hub after
-persist; signing it would break verification on every legitimate envelope.
+Signed bytes (canonical, sorted-key JSON): envelope_id, from_agent,
+to_agent, intent, client_context_id, payload and provenance. provenance is
+signed because it carries the signer stamp (provenance.signer) that the
+signer registry checks: changing who an envelope says signed it breaks the
+signature. sequence is EXCLUDED - the hub stamps it after persist, so
+signing it would break verification on every legitimate envelope.
 
-Limitation, stated plainly: HMAC is symmetric - any party holding the key
-can sign, not just verify. That is acceptable while the only authorized
-signer is the human principal's own tooling holding the only key. It is NOT
-sufficient for multi-party authority. The upgrade path is Ed25519
-(asymmetric), deferred because it requires the `cryptography` dependency - 
-a deployment decision, not a default.
+History (J10, 2026-10-12):
+  - provenance was not signed before this change, although
+    signer_registry.py said the stamp was bound into the signature. Anyone
+    able to alter an envelope in transit could change the claimed signer
+    without breaking the signature. Signatures made before this change do
+    not verify after it.
+  - the HMAC-SHA256 shared-secret tier (HmacSigner) was removed. With a
+    shared secret every verifier can also sign, so one stolen key forges any
+    authority. Sign with Ed25519Signer; give the hub Ed25519Verifier.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 
 
@@ -32,39 +35,9 @@ def _canonical(env) -> bytes:
         "intent": env.intent,
         "client_context_id": env.client_context_id,
         "payload": env.payload,
+        "provenance": env.provenance,
     }, sort_keys=True, separators=(",", ":")).encode()
 
-
-class HmacSigner:
-    """Holds the authority key. .sign() stamps env.signature;
-    .verifier() plugs straight into Hub(signature_verifier=...)."""
-
-    def __init__(self, key: bytes):
-        if not key or len(key) < 16:
-            raise ValueError("authority key must be at least 16 bytes")
-        self._key = key
-
-    def sign(self, env) -> str:
-        env.signature = hmac.new(self._key, _canonical(env),
-                                 hashlib.sha256).hexdigest()
-        return env.signature
-
-    def verify(self, env) -> bool:
-        if not env.signature:
-            return False               # absent signature is never valid
-        expected = hmac.new(self._key, _canonical(env),
-                            hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, env.signature)
-
-    def verifier(self):
-        return self.verify
-
-
-# --------------------------------------------------------------- Ed25519 tier
-# Asymmetric authority: private key signs, public key verifies. Verifiers
-# cannot forge - this is the multi-party upgrade HMAC cannot provide.
-# Requires `cryptography` (the package's ONLY optional dependency; import is
-# deferred so HMAC deployments stay zero-dep).
 
 class Ed25519Signer:
     """Authority side: holds the private key."""
@@ -92,6 +65,11 @@ class Ed25519Signer:
     def sign(self, env) -> str:
         env.signature = self.sign_bytes(_canonical(env))
         return env.signature
+
+    def verifier(self):
+        """A verifier for this signer's public key (the hub needs only
+        that; handy where the authority and the hub share a process)."""
+        return Ed25519Verifier(self.public_key_bytes()).verifier()
 
 
 class Ed25519Verifier:

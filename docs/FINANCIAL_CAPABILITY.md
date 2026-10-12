@@ -103,16 +103,18 @@ the architecture was designed around, and it holds.
 or reordering fails verification loudly. An unauthorized release cannot be
 retroactively disguised as an authorized one.
 
-**Soft — signing-key hygiene (the main one).** Two signer tiers exist. The HMAC
-tier uses a shared secret: anyone who can read that key can forge a valid
-signature, and it proves only that *a* keyholder signed, not *which* human. The
-signer registry (login + MFA) is the second lock that mitigates this — but if an
-identity ships with the registry unarmed, verification is crypto-only, and on
-the HMAC tier that means shared-secret-only. In that state, **key theft is full
+**Soft — signing-key hygiene (the main one).** Signatures are Ed25519: the hub
+holds only public keys, so a stolen configuration file yields keys that forge
+nothing. The private signing key is what matters — whoever holds it can sign.
+The signature covers the envelope's provenance, including the signer stamp, so
+the claimed signer cannot be changed after signing. The signer registry (login +
+MFA) is the second lock — but if an identity ships with the registry unarmed,
+verification is key-only, and in that state **theft of the private key is full
 compromise.** The system declares an unarmed registry on the audit log rather
-than passing silently, but *declared is not prevented.* Production should run the
-asymmetric **Ed25519** tier with per-signer public keys and an armed registry,
-so a stolen configuration file yields only public keys, which forge nothing.
+than passing silently, but *declared is not prevented.* Production should keep
+the private key off the hub's machine and run with an armed registry. (A
+shared-secret HMAC tier existed until 2026-10-12; it was removed because any
+verifier holding that secret could also sign.)
 
 **Soft — the release channel is the attack surface.** Once the lock and key
 exist, security reduces to how well the signing key and MFA session are

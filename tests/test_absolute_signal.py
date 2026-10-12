@@ -161,10 +161,9 @@ def test_rebuttal_is_a_designed_state_not_an_error():
 # THE KEY: signed release of a held message. Same trust bar as
 # execution authority - crypto signature + (when armed) signer registry.
 # ====================================================================
-from dispatcher.signatures import HmacSigner
+from dispatcher.signatures import Ed25519Signer
 from dispatcher.signer_registry import SignerRegistry
 
-_KEY = b"k" * 32
 
 
 def _gated_routes(tmp_path):
@@ -183,7 +182,7 @@ def _gated_routes(tmp_path):
 
 
 def _signed_hub(tmp_path, registry=None):
-    signer = HmacSigner(_KEY)
+    signer = Ed25519Signer()
     hub = Hub(_gated_routes(tmp_path),
               AuditLog(os.path.join(tmp_path, "audit.jsonl")),
               signature_verifier=signer.verifier(),

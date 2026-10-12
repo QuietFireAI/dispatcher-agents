@@ -6,13 +6,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dispatcher.core import Envelope, Routes, AuditLog
 from dispatcher.hub import Hub
 from dispatcher.attestation import build_manifest, verify_manifest, attest_boot
-from dispatcher.signatures import HmacSigner
+from dispatcher.signatures import Ed25519Signer
 from dispatcher.priority import SidingScheduler
 from dispatcher.loader import load_identity
 
 FIX = os.path.join(os.path.dirname(__file__), "routes_fixture.json")
 PKG = os.path.join(os.path.dirname(__file__), "..", "dispatcher")
-LISTING = os.environ.get("IDENTITY_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "listing-agents"))  # real identity when present as a sibling clone; identity-gated tests skip cleanly otherwise
+LISTING = os.environ.get("IDENTITY_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "listing-assistants"))  # real identity when present as a sibling clone; identity-gated tests skip cleanly otherwise
 
 
 def make_hub(tmp_path, verifier=None):
@@ -83,7 +83,7 @@ def test_unattested_new_file_named(tmp_path):
 
 # ------------------------------------------------------------------ signatures
 def test_signed_authority_intent_acks(tmp_path):
-    signer = HmacSigner(b"k" * 32)
+    signer = Ed25519Signer()
     hub = make_hub(tmp_path, verifier=signer.verifier())
     hub.register("05", lambda e: None)
     e = env(frm="human", to="05", intent="listing.change.authorized")
@@ -92,7 +92,7 @@ def test_signed_authority_intent_acks(tmp_path):
 
 
 def test_forged_signature_rejected_and_flagged(tmp_path):
-    signer = HmacSigner(b"k" * 32)
+    signer = Ed25519Signer()
     hub = make_hub(tmp_path, verifier=signer.verifier())
     hub.register("05", lambda e: None)
     e = env(frm="human", to="05", intent="listing.change.authorized")
@@ -103,7 +103,7 @@ def test_forged_signature_rejected_and_flagged(tmp_path):
 
 
 def test_signature_binds_fields_tamper_after_sign_fails(tmp_path):
-    signer = HmacSigner(b"k" * 32)
+    signer = Ed25519Signer()
     hub = make_hub(tmp_path, verifier=signer.verifier())
     hub.register("05", lambda e: None)
     e = env(frm="human", to="05", intent="listing.change.authorized",
@@ -114,7 +114,7 @@ def test_signature_binds_fields_tamper_after_sign_fails(tmp_path):
 
 
 def test_absent_signature_still_rejected(tmp_path):
-    signer = HmacSigner(b"k" * 32)
+    signer = Ed25519Signer()
     hub = make_hub(tmp_path, verifier=signer.verifier())
     hub.register("05", lambda e: None)
     r = hub.send(env(frm="human", to="05", intent="listing.change.authorized"))
@@ -179,7 +179,9 @@ def test_loads_real_listing_identity():
     # regression or just needs re-pinning to the new correct count -
     # re-verify via load_identity() directly, don't just bump the number
     # to make the test pass.
-    assert ident.n_routes == 51
+    # 52 since listing-assistants added the clock.tick route (2026-10-11);
+    # re-verified with load_identity() on a fresh clone 2026-10-12.
+    assert ident.n_routes == 52
     assert len(ident.agents) == 21
     # Pinned to the live identity. 24 since listing-agents d85ae51
     # (added playbooks P21-P24 and classified them in the DRAFT table).

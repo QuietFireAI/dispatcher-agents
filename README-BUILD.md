@@ -47,10 +47,11 @@ gate) - every claim a passing test in tests/test_day3.py:
   unattested new files each NAMED. Integrity, not authenticity: manifest
   signing rides the signature layer at deployment (limitation stated in
   module docstring)
-- real signature verification: HMAC-SHA256 over canonical envelope fields
-  (sequence excluded - hub stamps it post-sign), constant-time compare;
-  signed authority intent acks, forged/tampered/absent all reject +
-  integrity flag. Symmetric-key limitation stated; Ed25519 = upgrade path
+- real signature verification over canonical envelope fields (sequence
+  excluded - hub stamps it post-sign); signed authority intent acks,
+  forged/tampered/absent all reject + integrity flag. Built as HMAC-SHA256;
+  since 2026-10-12 (J10) Ed25519 only, and provenance (the signer stamp) is
+  among the signed fields
 - JIT priority + siding per core doctrine verbatim: classes 1-4 core,
   per-playbook assignment from the identity module (never hardcoded),
   higher class sides lower (held LIVE, auto-resume), class beats arrival
@@ -70,8 +71,9 @@ instrumented and KPI-computed. Day 5 (final): loop protection per
 counted; manners re-injection instrumentation (constant triggers enforced,
 backstop named PROVISIONAL); Ed25519 authority tier (verifier cannot forge)
 + signable boot manifest registering MANNERS.md hash per its own spec.
-`cryptography` is the package's ONLY dependency and only for Ed25519 - 
-HMAC deployments stay zero-dep. Every claim: tests/test_day3.py.
+`cryptography` is the package's ONLY dependency and only for signing;
+since the HMAC tier was removed (2026-10-12, J10) every signed deployment
+needs it. Every claim: tests/test_day3.py and tests/test_signer_chain.py.
 Day 6 (spokes.py, runs.py, territory.py): REAL spokes - deterministic
 work, self-submitted thought traces, reactive chaining (driver injects 2
 signals, spokes do the rest; Spoke03 is the labeled dark-trace exhibit);

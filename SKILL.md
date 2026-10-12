@@ -105,15 +105,17 @@ hash-chained; `AuditLog.verify_chain()` proves nothing was edited, deleted,
 or reordered.
 
 ```python
-from dispatcher.signatures import HmacSigner
+from dispatcher.signatures import Ed25519Signer, Ed25519Verifier
 from dispatcher.signer_registry import SignerRegistry
 
-signer = HmacSigner(key)                          # or the Ed25519 tier
+signer = Ed25519Signer(private_key_bytes)         # the authority's tooling holds this
 registry = SignerRegistry.load(ident.root)        # fail-closed: refuses UNRATIFIED templates
 hub = Hub(Routes(ident.routes_path), AuditLog("audit.jsonl"),
-          signature_verifier=signer.verifier(), signer_registry=registry)
+          signature_verifier=Ed25519Verifier(public_key_bytes).verifier(),
+          signer_registry=registry)
 # authority envelopes must carry provenance["signer"] =
 #   {"signer_login": ..., "idp_session_ref": ..., "mfa": True}
+# The signature covers provenance, so the stamp cannot be swapped after signing.
 ```
 
 Unarmed states are audited (`signer.unarmed`), never silent. What the
@@ -123,7 +125,7 @@ What it does not prove: that the IdP session is genuine - that is the IdP
 seam adapter's job (each identity's INTEGRATIONS.md).
 
 `IDENTITY_DIR` selects the identity for the demo and the identity-gated
-tests: `IDENTITY_DIR=/path/to/listing-agents python -m pytest tests/`.
+tests: `IDENTITY_DIR=/path/to/listing-assistants python -m pytest tests/`.
 
 ## Rules for the agent running this skill
 

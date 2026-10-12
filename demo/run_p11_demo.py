@@ -42,7 +42,7 @@ def stub_model_b(prompt: str) -> dict:
 
 IDENTITY = os.environ.get(
     "IDENTITY_DIR",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "listing-agents"))
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "listing-assistants"))
 
 
 def signal(ctx, payload):
