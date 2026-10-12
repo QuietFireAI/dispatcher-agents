@@ -80,8 +80,15 @@ message. Mechanically:
    the signer's login and MFA), then releases that one message, once. The
    authorization is written to the tamper-evident audit log.
 
-A release is an authority action held to the same bar as a financial-execution
-authorization. There is no weaker path.
+The other answer is **no**. The same signed `disclosure.authority`, with
+`"decision": "decline"` (and a reason, if you give one), removes that one held
+message: it is never sent, and the decline is written to the audit log with who
+declined it and why (`Hub.decline_disclosure`, added 2026-10-12). The decision is
+part of what is signed, so a signed "decline" can never be used as a "send", nor
+the other way round.
+
+A release or a decline is an authority action held to the same bar as a
+financial-execution authorization. There is no weaker path.
 
 To turn on financial *execution* (Lock 1), engage support:
 `support/engage-financial-capability`. That is a deliberate, out-of-band process

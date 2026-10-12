@@ -258,6 +258,48 @@ class Hub:
         with self._lock:
             self.handlers[agent_id] = handler
 
+    def _check_disclosure_key(self, auth: Envelope, decision: str):
+        """The trust bar shared by release and decline - one function, so
+        neither path can drift weaker than the other. Returns
+        (reject_dict, None) on failure or (None, held_envelope) on success.
+
+        The decision is part of the SIGNED payload: a signed decline cannot
+        be replayed as a release, nor a release as a decline. A payload with
+        no decision reads as "release" (every authorization signed before
+        decline existed)."""
+        verb = "release" if decision == "release" else "decline"
+        if auth.intent != "disclosure.authority":
+            return self._reject(auth, f"{verb} requires intent "
+                                      "'disclosure.authority'"), None
+        # 1. signature - identical bar to execution authority
+        if not self.verify_sig(auth):
+            self.queue_and_notify("integrity.violation", auth.to_record())
+            self.audit.append("integrity.violation",
+                              {"envelope_id": auth.envelope_id,
+                               "reason": "disclosure.authority without "
+                                         "verified signature"})
+            return self._reject(auth, f"unverified signature on disclosure {verb}"), None
+        # 2. signer identity when a registry is armed
+        if self.signer_registry is not None:
+            v = self.signer_registry.check(auth)
+            if not v.ok:
+                self.queue_and_notify("integrity.violation", auth.to_record())
+                self.audit.append("integrity.violation",
+                                  {"envelope_id": auth.envelope_id,
+                                   "reason": f"signer registry: {v.reason}"})
+                return self._reject(auth, f"signer registry: {v.reason}"), None
+        # 3. the signed decision must be this one
+        signed = auth.payload.get("decision", "release")
+        if signed != decision:
+            return self._reject(auth, f"authorization was signed for "
+                                      f"{signed!r}, not {decision!r}"), None
+        # 4. the named held envelope must exist and still be held
+        held_id = auth.payload.get("held_envelope_id")
+        original = self._absolute_holds.get(held_id)
+        if original is None:
+            return self._reject(auth, f"no held envelope {held_id!r} to {verb}"), None
+        return None, original
+
     def release_disclosure(self, auth: Envelope) -> dict:
         """The KEY. A signed authorization that clears exactly one held
         outbound message. It is the disclosure twin of the execution-authority
@@ -272,32 +314,11 @@ class Hub:
         hash chain. Fail-closed at every branch: unsigned, unknown id, or a
         registry rejection releases nothing."""
         with self._lock:
-            if auth.intent != "disclosure.authority":
-                return self._reject(auth, "release requires intent "
-                                          "'disclosure.authority'")
-            # 1. signature - identical bar to execution authority
-            if not self.verify_sig(auth):
-                self.queue_and_notify("integrity.violation", auth.to_record())
-                self.audit.append("integrity.violation",
-                                  {"envelope_id": auth.envelope_id,
-                                   "reason": "disclosure.authority without "
-                                             "verified signature"})
-                return self._reject(auth, "unverified signature on disclosure release")
-            # 2. signer identity when a registry is armed
-            if self.signer_registry is not None:
-                v = self.signer_registry.check(auth)
-                if not v.ok:
-                    self.queue_and_notify("integrity.violation", auth.to_record())
-                    self.audit.append("integrity.violation",
-                                      {"envelope_id": auth.envelope_id,
-                                       "reason": f"signer registry: {v.reason}"})
-                    return self._reject(auth, f"signer registry: {v.reason}")
-            # 3. the named held envelope must exist and still be held
-            held_id = auth.payload.get("held_envelope_id")
-            original = self._absolute_holds.get(held_id)
-            if original is None:
-                return self._reject(auth, f"no held envelope {held_id!r} to release")
-            # 4. arm the one-shot release and re-send the ORIGINAL. The gate will
+            rejected, original = self._check_disclosure_key(auth, "release")
+            if rejected is not None:
+                return rejected
+            held_id = original.envelope_id
+            # arm the one-shot release and re-send the ORIGINAL. The gate will
             # see the released id, pass it once, and consume it. seen_ids on the
             # original id also guards replay: a message already delivered cannot be
             # re-completed by a second release.
@@ -308,6 +329,34 @@ class Hub:
                                "authorized_by_envelope": auth.envelope_id,
                                "intent": original.intent})
             return self.send(original)
+
+    def decline_disclosure(self, auth: Envelope) -> dict:
+        """The other answer to a held message: do NOT send it. Added
+        2026-10-12 - before this, a held message could be released or left
+        held forever; a human had no way to say no.
+
+        Same signed key and the same checks as release (one shared function),
+        with payload {'held_envelope_id': id, 'decision': 'decline'} and an
+        optional 'reason'. On success the held message is dropped from the
+        hold - never persisted, never delivered - and 'disclosure.declined'
+        lands on the hash chain with who declined it (the authorization
+        envelope) and why. Fail-closed: unsigned, unknown id, a registry
+        rejection or a release-signed key declines nothing. Should the same
+        envelope be sent again it meets the gate again and holds again."""
+        with self._lock:
+            rejected, original = self._check_disclosure_key(auth, "decline")
+            if rejected is not None:
+                return rejected
+            held_id = original.envelope_id
+            self._absolute_holds.pop(held_id, None)
+            self.audit.append("disclosure.declined",
+                              {"held_envelope_id": held_id,
+                               "declined_by_envelope": auth.envelope_id,
+                               "intent": original.intent,
+                               "client_context_id": original.client_context_id,
+                               "reason": str(auth.payload.get("reason") or "")[:500]})
+            return {"status": "declined", "envelope_id": held_id,
+                    "intent": original.intent}
 
     def queue_and_notify(self, queue_name: str, record: dict) -> None:
         """Real gap, found 2026-07-17: the 'append to a queue, then notify

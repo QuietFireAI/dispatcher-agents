@@ -288,6 +288,87 @@ def test_registry_rejection_blocks_release(tmp_path):
     assert env.envelope_id in hub._absolute_holds
 
 
+# --- the other answer: a signed DECLINE (added 2026-10-12) -------------------
+def _decline_env(held_id, signer, reason="not this vendor", stamp=None):
+    prov = {"source": "t"}
+    if stamp:
+        prov["signer"] = stamp
+    a = Envelope(from_agent="human", to_agent="09",
+                 intent="disclosure.authority", client_context_id="c1",
+                 payload={"held_envelope_id": held_id, "decision": "decline",
+                          "reason": reason}, provenance=prov)
+    a.signature = signer.sign(a)
+    return a
+
+
+def test_signed_decline_drops_the_hold_and_sends_nothing(tmp_path):
+    hub, signer = _signed_hub(str(tmp_path))
+    env = _held_env(); hub.send(env)
+    r = hub.decline_disclosure(_decline_env(env.envelope_id, signer))
+    assert r == {"status": "declined", "envelope_id": env.envelope_id,
+                 "intent": "vendor.schedule"}
+    assert env.envelope_id not in hub._absolute_holds
+    assert env.envelope_id not in hub._absolute_released
+    log = hub.audit.read()
+    dec = [e for e in log if e["kind"] == "disclosure.declined"]
+    assert len(dec) == 1 and dec[0]["held_envelope_id"] == env.envelope_id
+    assert dec[0]["reason"] == "not this vendor"
+    kinds = [e["kind"] for e in log]
+    # never released, never persisted, never delivered
+    assert "absolute_signal.released" not in kinds
+    assert "disclosure.authorized" not in kinds
+    assert not any(e["kind"] == "envelope.persisted"
+                   and e.get("envelope_id") == env.envelope_id for e in log)
+    assert hub.audit.verify_chain()["ok"]
+
+
+def test_unsigned_decline_rejected(tmp_path):
+    hub, signer = _signed_hub(str(tmp_path))
+    env = _held_env(); hub.send(env)
+    bad = Envelope(from_agent="human", to_agent="09",
+                   intent="disclosure.authority", client_context_id="c1",
+                   payload={"held_envelope_id": env.envelope_id,
+                            "decision": "decline"},
+                   provenance={"source": "t"})
+    r = hub.decline_disclosure(bad)
+    assert r["status"] == "reject"
+    assert env.envelope_id in hub._absolute_holds
+
+
+def test_release_key_cannot_decline_and_decline_key_cannot_release(tmp_path):
+    hub, signer = _signed_hub(str(tmp_path))
+    env = _held_env(); hub.send(env)
+    r1 = hub.decline_disclosure(_auth_env(env.envelope_id, signer))
+    assert r1["status"] == "reject" and "signed for 'release'" in r1["reason"]
+    r2 = hub.release_disclosure(_decline_env(env.envelope_id, signer))
+    assert r2["status"] == "reject" and "signed for 'decline'" in r2["reason"]
+    assert env.envelope_id in hub._absolute_holds   # untouched by both
+
+
+def test_decline_unknown_or_already_answered_rejected(tmp_path):
+    hub, signer = _signed_hub(str(tmp_path))
+    r = hub.decline_disclosure(_decline_env("no-such-id", signer))
+    assert r["status"] == "reject" and "no held envelope" in r["reason"]
+    env = _held_env(); hub.send(env)
+    assert hub.decline_disclosure(_decline_env(env.envelope_id, signer))["status"] == "declined"
+    again = hub.decline_disclosure(_decline_env(env.envelope_id, signer))
+    assert again["status"] == "reject"
+    late = hub.release_disclosure(_auth_env(env.envelope_id, signer))
+    assert late["status"] == "reject"          # a declined message cannot be released later
+
+
+def test_registry_rejection_blocks_decline(tmp_path):
+    reg = SignerRegistry([{"intent": "disclosure.authority",
+                           "signer_login": "jeff", "idp": "okta",
+                           "mfa_required": True, "effective": "2026-07-11",
+                           "revoked": None}])
+    hub, signer = _signed_hub(str(tmp_path), registry=reg)
+    env = _held_env(); hub.send(env)
+    r = hub.decline_disclosure(_decline_env(env.envelope_id, signer, stamp=None))
+    assert r["status"] == "reject"
+    assert env.envelope_id in hub._absolute_holds
+
+
 # --- the rebuttal must not point at a file that does not exist ---------------
 def test_capability_doc_pointer_resolves():
     from dispatcher.absolute_signal import CAPABILITY_DOC
