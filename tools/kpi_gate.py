@@ -68,7 +68,7 @@ def main(argv=None) -> int:
     ap.add_argument("--taints-expected", type=int, default=0)
     ap.add_argument("--selfcheck-bait-expected", type=int, default=0)
     a = ap.parse_args(argv)
-    events = [json.loads(l) for l in open(a.audit_log) if l.strip()]
+    events = [json.loads(l) for l in open(a.audit_log, encoding="utf-8") if l.strip()]
     v = gate(events, a.taints_expected, a.selfcheck_bait_expected)
     k = compute_kpis(events)
     print("delta-class (recorded, not thresholded):",

@@ -44,4 +44,4 @@ def test_core_files_do_not_name_telsonbase():
     pkg = os.path.join(ROOT, "dispatcher")
     for f in os.listdir(pkg):
         if f.endswith(".py"):
-            assert "telsonbase" not in open(os.path.join(pkg, f)).read().lower(), f
+            assert "telsonbase" not in open(os.path.join(pkg, f), encoding="utf-8").read().lower(), f

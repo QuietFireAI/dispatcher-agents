@@ -18,12 +18,12 @@ FIX = os.path.join(os.path.dirname(__file__), "routes_fixture.json")
 def _routes_with(tmp_path, mutate):
     """Build a Routes from the fixture with per-intent audience overrides so
     each class can be tested against the real loader, not a mock."""
-    d = json.load(open(FIX))
+    d = json.load(open(FIX, encoding="utf-8"))
     for r in d["routes"]:
         if "external" in r.get("receivers", []):
             mutate(r)
     p = os.path.join(tmp_path, "routes.json")
-    json.dump(d, open(p, "w"))
+    json.dump(d, open(p, "w", encoding="utf-8"))
     return Routes(p)
 
 
@@ -177,7 +177,7 @@ def _gated_routes(tmp_path):
          "receivers": ["09"]},
     ]}
     p = os.path.join(tmp_path, "routes.json")
-    json.dump(doc, open(p, "w"))
+    json.dump(doc, open(p, "w", encoding="utf-8"))
     return Routes(p)
 
 

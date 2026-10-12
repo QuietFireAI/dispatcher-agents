@@ -66,7 +66,7 @@ class SignerRegistry:
             raise FileNotFoundError(
                 f"authority_signers.json absent at {path} - an identity with "
                 "authority intents cannot arm signer enforcement without it")
-        doc = json.load(open(path))
+        doc = json.load(open(path, encoding="utf-8"))
         status = str(doc.get("_status", ""))
         if "UNRATIFIED" in status.upper():
             raise ValueError(

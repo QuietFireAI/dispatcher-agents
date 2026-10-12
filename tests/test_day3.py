@@ -59,10 +59,10 @@ def test_boot_attestation_logged_and_verifies_clean(tmp_path):
 
 def test_tampered_file_named_in_violation(tmp_path):
     pkg = tmp_path / "pkg"; pkg.mkdir()
-    f = pkg / "mod.py"; f.write_text("x = 1\n")
-    routes = tmp_path / "routes.json"; routes.write_text("{}")
+    f = pkg / "mod.py"; f.write_text("x = 1\n", encoding="utf-8")
+    routes = tmp_path / "routes.json"; routes.write_text("{}", encoding="utf-8")
     m = build_manifest(str(pkg), str(routes))
-    f.write_text("x = 2  # tampered\n")
+    f.write_text("x = 2  # tampered\n", encoding="utf-8")
     v = verify_manifest(m, str(pkg), str(routes))
     assert len(v) == 1 and "mod.py" in v[0] and "mismatch" in v[0]
 
@@ -73,10 +73,10 @@ def test_absent_manifest_fails_closed(tmp_path):
 
 def test_unattested_new_file_named(tmp_path):
     pkg = tmp_path / "pkg"; pkg.mkdir()
-    (pkg / "mod.py").write_text("x = 1\n")
-    routes = tmp_path / "routes.json"; routes.write_text("{}")
+    (pkg / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    routes = tmp_path / "routes.json"; routes.write_text("{}", encoding="utf-8")
     m = build_manifest(str(pkg), str(routes))
-    (pkg / "smuggled.py").write_text("evil = True\n")
+    (pkg / "smuggled.py").write_text("evil = True\n", encoding="utf-8")
     v = verify_manifest(m, str(pkg), str(routes))
     assert len(v) == 1 and "smuggled.py" in v[0] and "unattested" in v[0]
 
@@ -207,7 +207,7 @@ def test_loaded_identity_drives_hub_and_scheduler(tmp_path):
 
 def test_missing_routes_refuses_to_load(tmp_path):
     d = tmp_path / "ident"; d.mkdir()
-    (d / "01-thing").mkdir(); (d / "01-thing" / "SKILL.md").write_text("x")
+    (d / "01-thing").mkdir(); (d / "01-thing" / "SKILL.md").write_text("x", encoding="utf-8")
     with pytest.raises(FileNotFoundError):
         load_identity(str(d))
 
@@ -215,7 +215,7 @@ def test_missing_routes_refuses_to_load(tmp_path):
 def test_agent_dir_without_skill_is_violation_not_skip(tmp_path):
     d = tmp_path / "ident"; d.mkdir()
     (d / "routes.json").write_text(
-        '{"vertical":"t","routes":[{"intent":"a","senders":["01"],"receivers":["02"]}]}')
+        '{"vertical":"t","routes":[{"intent":"a","senders":["01"],"receivers":["02"]}]}', encoding="utf-8")
     (d / "01-thing").mkdir()                               # no SKILL.md
     with pytest.raises(ValueError, match="SKILL.md absent"):
         load_identity(str(d))
@@ -230,7 +230,7 @@ def test_p11_demo_end_to_end(tmp_path, monkeypatch):
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "demo"))
     import run_p11_demo
     path, steps, notified = run_p11_demo.run(outdir=str(tmp_path / "aa"))
-    report = open(path).read()
+    report = open(path, encoding="utf-8").read()
     assert len(steps) >= 10                         # driver injected only 2;
     #                                       the swarm chained the rest itself
     # THE FIX (2026-07-17): this demo deliberately exercises TWO other
@@ -577,7 +577,7 @@ def test_baseline_rerun_does_not_poison_the_gate(tmp_path, monkeypatch):
     logs = [l for l in logs if "audit-b-" not in l]
     assert len(logs) == 3                          # three self-contained logs
     for log in logs:
-        events = [_json.loads(l) for l in open(log) if l.strip()]
+        events = [_json.loads(l) for l in open(log, encoding="utf-8") if l.strip()]
         assert gate(events, taints_expected=1, selfcheck_bait_expected=1) == []
 
 
@@ -613,9 +613,9 @@ def test_loader_fails_closed_on_absent_priority(tmp_path):
     root = tmp_path / "ident"
     (root / "identity").mkdir(parents=True)
     (root / "01-x").mkdir()
-    (root / "01-x" / "SKILL.md").write_text("# x")
+    (root / "01-x" / "SKILL.md").write_text("# x", encoding="utf-8")
     json.dump({"vertical": "t", "version": "0", "routes": [
         {"intent": "a.b", "senders": ["01"], "receivers": ["01"]}]},
-        open(root / "identity" / "routes.json", "w"))
+        open(root / "identity" / "routes.json", "w", encoding="utf-8"))
     with pytest.raises(ValueError, match="fail-closed"):
         load_identity(str(root))

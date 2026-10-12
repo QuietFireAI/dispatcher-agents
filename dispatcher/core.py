@@ -75,7 +75,7 @@ class Routes:
     """The closed track. Loaded from an identity side-load (routes.json)."""
 
     def __init__(self, path: str):
-        data = json.load(open(path))
+        data = json.load(open(path, encoding="utf-8"))
         self.version = data.get("version", "?")
         self.entries = [(r["intent"], set(r["senders"]), set(r["receivers"]))
                         for r in data["routes"]]
@@ -153,7 +153,7 @@ class AuditLog:
         if not os.path.exists(self.path):
             return self.GENESIS
         tip = self.GENESIS
-        with open(self.path) as f:
+        with open(self.path, encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     tip = json.loads(line).get("entry_hash", tip)
@@ -177,7 +177,7 @@ class AuditLog:
                 body.pop(k, None)
             eh = self._entry_hash(body, self._prev)
             line = json.dumps({**body, "prev_hash": self._prev, "entry_hash": eh})
-            with open(self.path, "a") as f:
+            with open(self.path, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
                 f.flush()
                 os.fsync(f.fileno())
@@ -194,7 +194,7 @@ class AuditLog:
         2026-07-17 review, closed 2026-07-18."""
         n = 0
         if os.path.exists(self.path):
-            with open(self.path) as f:
+            with open(self.path, encoding="utf-8") as f:
                 n = sum(1 for line in f if line.strip())
         return {"entries": n, "head_hash": self._prev}
 
@@ -221,7 +221,7 @@ class AuditLog:
             return {"ok": False,
                     "reason": f"anchor names {n} entries; log file absent - "
                               f"wholesale deletion"}
-        with open(self.path) as f:
+        with open(self.path, encoding="utf-8") as f:
             lines = [l for l in f if l.strip()]
         if len(lines) < n:
             return {"ok": False,
@@ -240,7 +240,7 @@ class AuditLog:
         prev, n = self.GENESIS, 0
         if not os.path.exists(self.path):
             return {"ok": True, "entries": 0, "break_at": None}
-        with open(self.path) as f:
+        with open(self.path, encoding="utf-8") as f:
             for i, line in enumerate(f, 1):
                 if not line.strip():
                     continue
@@ -256,4 +256,4 @@ class AuditLog:
     def read(self) -> list[dict]:
         if not os.path.exists(self.path):
             return []
-        return [json.loads(l) for l in open(self.path) if l.strip()]
+        return [json.loads(l) for l in open(self.path, encoding="utf-8") if l.strip()]

@@ -23,7 +23,7 @@ def _routes(tmp_path):
         {"intent": "note.record", "senders": ["01"], "receivers": ["13"]},
     ]}
     p = tmp_path / "routes.json"
-    p.write_text(json.dumps(doc))
+    p.write_text(json.dumps(doc), encoding="utf-8")
     return Routes(str(p))
 
 
@@ -63,7 +63,7 @@ def test_chain_breaks_loudly_on_tamper(tmp_path, attack):
     log = AuditLog(p)
     for i in range(3):
         log.append("x", {"n": i})
-    lines = open(p).read().splitlines()
+    lines = open(p, encoding="utf-8").read().splitlines()
     if attack == "edit":
         e = json.loads(lines[1]); e["n"] = 99
         lines[1] = json.dumps(e)
@@ -71,7 +71,7 @@ def test_chain_breaks_loudly_on_tamper(tmp_path, attack):
         lines = [lines[0], lines[2]]
     else:
         lines = [lines[1], lines[0], lines[2]]
-    open(p, "w").write("\n".join(lines) + "\n")
+    open(p, "w", encoding="utf-8").write("\n".join(lines) + "\n")
     v = AuditLog(p).verify_chain()
     assert v["ok"] is False and v["break_at"] is not None
 
@@ -97,7 +97,7 @@ def test_registry_refuses_unratified_template(tmp_path):
     (root / "config" / "authority_signers.json").write_text(json.dumps(
         {"_status": "UNRATIFIED TEMPLATE - fail closed", "entries": [
             {"intent": "pay.authority", "signer_login": "jeff",
-             "mfa_required": True}]}))
+             "mfa_required": True}]}), encoding="utf-8")
     with pytest.raises(ValueError, match="UNRATIFIED"):
         SignerRegistry.load(str(root))
 
@@ -255,8 +255,8 @@ def test_anchor_detects_truncation_and_malformed_anchor(tmp_path):
     for i in range(5):
         log.append("evt", {"n": i})
     anchor = log.anchor()
-    lines = open(p).read().splitlines()
-    open(p, "w").write("\n".join(lines[:3]) + "\n")
+    lines = open(p, encoding="utf-8").read().splitlines()
+    open(p, "w", encoding="utf-8").write("\n".join(lines[:3]) + "\n")
     v = AuditLog(p).verify_anchor(anchor)
     assert not v["ok"] and "anchored history is gone" in v["reason"]
     assert not AuditLog(p).verify_anchor({"entries": "x"})["ok"]
