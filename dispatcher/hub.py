@@ -39,6 +39,14 @@ from .absolute_signal import rebuttal
 
 AUTHORITY_INTENTS = {"listing.change.authorized", "config.update"}
 
+# A notifier result whose status is one of these means a person was reached
+# (a page was accepted for delivery, or the alert was put on a screen).
+# Anything else - a failure, an exception, an unknown status - is recorded as
+# human.notify_failed. Added 2026-10-13 (repair plan 1.1): the hub used to
+# write human.notified after every notifier call, so a Twilio 401 with the
+# placeholder account was recorded as a person notified.
+NOTIFY_DELIVERED = {"sent", "delivered", "shown"}
+
 
 def is_authority(intent: str) -> bool:
     """Authority classification for the enforcement gate. Identity modules
@@ -249,9 +257,7 @@ class Hub:
             # untrusted record FIRST so the framing queue wins (a spoke must not be
             # able to redirect its escalation's audited queue).
             self.audit.append("escalation.raised", {**record, "queue": queue})
-            if self.human_notifier is not None:
-                self.human_notifier(queue, record)
-                self.audit.append("human.notified", {**record, "queue": queue})
+            self._notify(queue, record)
             return {"status": "escalated", "queue": queue}
 
     def register(self, agent_id: str, handler: Callable[[Envelope], None]):
@@ -373,9 +379,43 @@ class Hub:
         reimplementing the pattern by hand."""
         with self._lock:
             self.queues.setdefault(queue_name, []).append(record)
-            if self.human_notifier is not None:
-                self.human_notifier(queue_name, record)
-                self.audit.append("human.notified", {**record, "queue": queue_name})
+            self._notify(queue_name, record)
+
+    def _notify(self, queue: str, record: dict) -> None:
+        """Calls the human notifier and records what actually happened
+        (repair plan 1.1, 2026-10-13). The notifier's return value decides:
+          - a dict whose "status" is in NOTIFY_DELIVERED -> human.notified
+          - a dict with any other status, or an exception -> human.notify_failed
+            (with the status, http status, channel or error; never the body)
+          - no dict at all (a notifier that reports nothing) -> human.notified
+            with transport "not reported", so the record does not claim a
+            delivery the notifier never confirmed
+        A notifier that raises no longer aborts the send it was reporting on:
+        the failure is on the record and the hub carries on. The escalation
+        transport KPI (kpi.py) reports confirmed, unreported and failed
+        notifications separately."""
+        if self.human_notifier is None:
+            return
+        try:
+            res = self.human_notifier(queue, record)
+        except Exception as e:  # recorded, never raised past the hub
+            self.audit.append("human.notify_failed",
+                              {**record, "queue": queue, "error": repr(e)[:300]})
+            return
+        if not isinstance(res, dict):
+            self.audit.append("human.notified",
+                              {**record, "queue": queue, "transport": "not reported"})
+            return
+        status = res.get("status")
+        if status in NOTIFY_DELIVERED:
+            self.audit.append("human.notified",
+                              {**record, "queue": queue, "transport_status": status})
+            return
+        failed = {**record, "queue": queue, "notifier_status": status}
+        for k in ("http_status", "channel", "error"):
+            if k in res:
+                failed[f"notifier_{k}"] = str(res[k])[:300] if k == "error" else res[k]
+        self.audit.append("human.notify_failed", failed)
 
     def resume_loop_suspension(self, client_context_id: str, intent: str) -> dict:
         """Real gap, found 2026-07-17: once a (context, intent) pair

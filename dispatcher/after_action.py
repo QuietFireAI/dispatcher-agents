@@ -4,8 +4,9 @@ Implements AFTER_ACTION.md's template from the audit log ONLY - never from
 agent memory, never self-reported. One markdown report per run.
 
 Schema fields the runtime cannot yet populate are DECLARED, not faked:
-- manners re-injections: no manners events exist in the runtime yet
 - human response time: notification is instrumented, response is not
+(Corrected 2026-10-13: this list also named manners re-injections, which the
+report below does read from the log.)
 An unreported deviation is a fabricated report (schema's own words), so
 deviations are computed mechanically: any audited reject, hold, dead-letter,
 taint, or siding event inside the run window is a deviation, verbatim.
@@ -37,7 +38,8 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
     run_events = [e for e in events
                   if e.get("client_context_id") == client_context_id
                   or e.get("envelope_id") in {s.get("envelope_id") for s in steps}
-                  or e["kind"] in ("escalation.raised", "human.notified")]
+                  or e["kind"] in ("escalation.raised", "human.notified",
+                                   "human.notify_failed")]
     if not run_events:
         raise ValueError(f"no audited events for run {run_id!r} - a report "
                          f"without log evidence would be fabricated")
@@ -91,12 +93,19 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
     lines += ["", "## escalations"]
     notif = {e.get("queue"): e["ts"] for e in run_events
              if e["kind"] == "human.notified"}
+    failed = {e.get("queue"): e for e in run_events
+              if e["kind"] == "human.notify_failed"}
     if esc:
         for e in esc:
             q = e.get("queue")
             if q in notif and notif[q] >= e["ts"]:
                 lines.append(f"- {q}: transport {notif[q]-e['ts']:.4f}s; "
                              f"human response time: NOT INSTRUMENTED")
+            elif q in failed and failed[q]["ts"] >= e["ts"]:
+                f = failed[q]
+                why = f.get("notifier_status") or f.get("error") or "unknown"
+                lines.append(f"- {q}: raised, NOTIFICATION FAILED ({why}) - "
+                             f"no person was reached")
             else:
                 lines.append(f"- {q}: raised, NO human.notified on log - "
                              f"transport unproven")

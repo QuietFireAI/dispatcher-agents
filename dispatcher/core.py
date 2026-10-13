@@ -128,6 +128,55 @@ class Routes:
         return False
 
 
+class AuditLogDamaged(Exception):
+    """The audit log has a line that is not a readable entry (added
+    2026-10-13, repair plan 1.2; owner decision D4: refuse, name the line,
+    and say how to recover - never clean up silently).
+
+    torn_tail is True when the unreadable line is the LAST one and the file
+    does not end with a newline: the signature of a write cut off part-way
+    (a crash or power loss during append). Only that case has a recovery
+    path, AuditLog.repair_torn_tail(path), which a person runs. Any other
+    unreadable line is damage or tampering and has no automatic repair."""
+
+    def __init__(self, path: str, line: int, reason: str, torn_tail: bool):
+        self.path, self.line, self.reason, self.torn_tail = path, line, reason, torn_tail
+        if torn_tail:
+            how = ("this looks like a write that was cut off (for example by a "
+                   "power loss). To recover, a person runs "
+                   "AuditLog.repair_torn_tail(path) (tools/audit_repair.py in "
+                   "dispatcher-agents): it moves that partial line to a side "
+                   "file, keeps every complete entry, and records the repair "
+                   "on the chain")
+        else:
+            how = ("this is not a cut-off last write; nothing repairs it "
+                   "automatically. Keep the file as it is and investigate")
+        super().__init__(f"audit log {path} is damaged at line {line}: {reason}. "
+                         f"Nothing was written. {how}.")
+
+
+def _log_lines(path: str):
+    """The file's lines as (line_number, bytes), 1-based, blank lines
+    skipped, read as bytes so a cut-off multi-byte character cannot stop the
+    read. Also returns whether the file ends with a newline."""
+    with open(path, "rb") as f:
+        data = f.read()
+    out = []
+    for i, raw in enumerate(data.split(b"\n"), 1):
+        if raw.strip():
+            out.append((i, raw.rstrip(b"\r")))
+    return out, data.endswith(b"\n") or not data
+
+
+def _parse(raw: bytes):
+    """One log line as a dict, or None if it is not a readable entry."""
+    try:
+        e = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    return e if isinstance(e, dict) else None
+
+
 class AuditLog:
     """Append-only, HASH-CHAINED JSONL. Persist happens BEFORE delivery; the
     log is the single source of truth for KPIs - no self-reported metrics
@@ -149,15 +198,89 @@ class AuditLog:
         self._prev = self._recover_tip()
 
     def _recover_tip(self) -> str:
-        """Resume the chain across process restarts: tip = last entry_hash."""
+        """Resume the chain across process restarts: tip = last entry_hash.
+        An unreadable line raises AuditLogDamaged naming it (2026-10-13; it
+        used to raise a bare JSONDecodeError). A complete last entry that
+        only lost its newline is kept, and the next append starts a new line."""
+        self._needs_newline = False
         if not os.path.exists(self.path):
             return self.GENESIS
+        lines, ends_nl = _log_lines(self.path)
         tip = self.GENESIS
-        with open(self.path, encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    tip = json.loads(line).get("entry_hash", tip)
+        for n, (i, raw) in enumerate(lines):
+            e = _parse(raw)
+            if e is None:
+                last = n == len(lines) - 1
+                raise AuditLogDamaged(self.path, i, "not a readable entry",
+                                      torn_tail=last and not ends_nl)
+            tip = e.get("entry_hash", tip)
+        self._needs_newline = bool(lines) and not ends_nl
         return tip
+
+    @classmethod
+    def check_file(cls, path: str) -> dict:
+        """verify_chain() for a log that may be too damaged to open for
+        writing (AuditLog(path) refuses a damaged file). Reads only."""
+        o = cls.__new__(cls)
+        o.path = path
+        return o.verify_chain()
+
+    @classmethod
+    def repair_torn_tail(cls, path: str) -> dict:
+        """Recovery for a write cut off part-way - run by a person, never
+        automatically (owner decision D4, 2026-10-13). Refuses (raises
+        AuditLogDamaged or ValueError, changing nothing) unless ALL of:
+          - the bytes after the last newline are not a readable entry, and
+          - every line before them is readable and the chain over them verifies.
+        Then: the partial bytes are written to a new side file
+        <path>.torn-<UTC time>-<sha12> (flushed to disk first), the log is cut
+        back to its last complete entry, and an audit.tail_quarantined entry
+        (line, byte count, sha256 of the partial bytes, side file) is
+        appended, so the repair itself is on the chain. Returns that record."""
+        if not os.path.exists(path):
+            raise ValueError(f"{path}: no such audit log")
+        with open(path, "rb") as f:
+            data = f.read()
+        cut = data.rfind(b"\n") + 1           # start of the bytes after the last newline
+        tail = data[cut:]
+        if not tail.strip():
+            raise ValueError(f"{path}: the file ends with a complete line - "
+                             f"there is no cut-off write to repair")
+        if _parse(tail.rstrip(b"\r")) is not None:
+            raise ValueError(f"{path}: the last line is a complete entry that only "
+                             f"lacks its newline - nothing to repair; the log opens as is")
+        prefix = data[:cut]
+        prev, n = cls.GENESIS, 0
+        for i, raw in enumerate(prefix.split(b"\n"), 1):
+            if not raw.strip():
+                continue
+            e = _parse(raw.rstrip(b"\r"))
+            if e is None:
+                raise AuditLogDamaged(path, i, "not a readable entry (before the "
+                                      "last line)", torn_tail=False)
+            body = {k: v for k, v in e.items() if k not in ("prev_hash", "entry_hash")}
+            if e.get("prev_hash") != prev or e.get("entry_hash") != cls._entry_hash(body, prev):
+                raise ValueError(f"{path}: the chain breaks at line {i}, before the "
+                                 f"cut-off line - this is not only a cut-off write; "
+                                 f"nothing was changed")
+            prev, n = e["entry_hash"], i
+        torn_line = prefix.count(b"\n") + 1
+        digest = hashlib.sha256(tail).hexdigest()
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        side = f"{path}.torn-{stamp}-{digest[:12]}"
+        with open(side, "xb") as f:            # never overwrite an earlier side file
+            f.write(tail)
+            f.flush()
+            os.fsync(f.fileno())
+        with open(path, "r+b") as f:
+            f.truncate(len(prefix))
+            f.flush()
+            os.fsync(f.fileno())
+        rec = {"line": torn_line, "bytes": len(tail), "sha256": digest,
+               "side_file": os.path.basename(side),
+               "complete_entries": sum(1 for r in prefix.split(b"\n") if r.strip())}
+        cls(path).append("audit.tail_quarantined", rec)
+        return rec
 
     RESERVED = ("ts", "kind", "prev_hash", "entry_hash")  # framing fields the log owns, never the caller
 
@@ -178,9 +301,12 @@ class AuditLog:
             eh = self._entry_hash(body, self._prev)
             line = json.dumps({**body, "prev_hash": self._prev, "entry_hash": eh})
             with open(self.path, "a", encoding="utf-8") as f:
+                if self._needs_newline:          # last entry lost only its newline
+                    f.write("\n")
                 f.write(line + "\n")
                 f.flush()
                 os.fsync(f.fileno())
+            self._needs_newline = False
             self._prev = eh
 
     def anchor(self) -> dict:
@@ -192,10 +318,7 @@ class AuditLog:
         in a handoff) closes that: a regenerated log cannot reproduce the
         anchored head hash at the anchored position. Gap named in the
         2026-07-17 review, closed 2026-07-18."""
-        n = 0
-        if os.path.exists(self.path):
-            with open(self.path, encoding="utf-8") as f:
-                n = sum(1 for line in f if line.strip())
+        n = len(_log_lines(self.path)[0]) if os.path.exists(self.path) else 0
         return {"entries": n, "head_hash": self._prev}
 
     def verify_anchor(self, anchor: dict) -> dict:
@@ -221,13 +344,13 @@ class AuditLog:
             return {"ok": False,
                     "reason": f"anchor names {n} entries; log file absent - "
                               f"wholesale deletion"}
-        with open(self.path, encoding="utf-8") as f:
-            lines = [l for l in f if l.strip()]
+        lines = [raw for _, raw in _log_lines(self.path)[0]]
         if len(lines) < n:
             return {"ok": False,
                     "reason": f"anchor names {n} entries; log has only "
                               f"{len(lines)} - the anchored history is gone"}
-        actual = json.loads(lines[n - 1]).get("entry_hash")
+        e = _parse(lines[n - 1])
+        actual = e.get("entry_hash") if e else None
         if actual != head:
             return {"ok": False,
                     "reason": f"entry {n} hash mismatch - the log was "
@@ -236,24 +359,42 @@ class AuditLog:
 
     def verify_chain(self) -> dict:
         """Walk the file and recompute every link. Returns
-        {ok, entries, break_at} - break_at names the first bad line (1-based)."""
+        {ok, entries, break_at} - break_at names the first bad line (1-based).
+        On a break it also returns "reason" and "torn_tail". Since 2026-10-13
+        an unreadable line (a cut-off write, damage) is a named break, never
+        an exception."""
         prev, n = self.GENESIS, 0
         if not os.path.exists(self.path):
             return {"ok": True, "entries": 0, "break_at": None}
-        with open(self.path, encoding="utf-8") as f:
-            for i, line in enumerate(f, 1):
-                if not line.strip():
-                    continue
-                e = json.loads(line)
-                body = {k: v for k, v in e.items()
-                        if k not in ("prev_hash", "entry_hash")}
-                if e.get("prev_hash") != prev or \
-                   e.get("entry_hash") != self._entry_hash(body, prev):
-                    return {"ok": False, "entries": i, "break_at": i}
-                prev = e["entry_hash"]; n = i
+        lines, ends_nl = _log_lines(self.path)
+        for k, (i, raw) in enumerate(lines):
+            e = _parse(raw)
+            if e is None:
+                return {"ok": False, "entries": i, "break_at": i,
+                        "reason": "not a readable entry",
+                        "torn_tail": k == len(lines) - 1 and not ends_nl}
+            body = {key: v for key, v in e.items()
+                    if key not in ("prev_hash", "entry_hash")}
+            if e.get("prev_hash") != prev or \
+               e.get("entry_hash") != self._entry_hash(body, prev):
+                return {"ok": False, "entries": i, "break_at": i,
+                        "reason": "does not link to the entry before it "
+                                  "(edited, deleted or reordered)",
+                        "torn_tail": False}
+            prev = e["entry_hash"]; n = i
         return {"ok": True, "entries": n, "break_at": None}
 
     def read(self) -> list[dict]:
+        """Every entry. An unreadable line raises AuditLogDamaged naming it
+        (2026-10-13; it used to raise a bare JSONDecodeError)."""
         if not os.path.exists(self.path):
             return []
-        return [json.loads(l) for l in open(self.path, encoding="utf-8") if l.strip()]
+        lines, ends_nl = _log_lines(self.path)
+        out = []
+        for k, (i, raw) in enumerate(lines):
+            e = _parse(raw)
+            if e is None:
+                raise AuditLogDamaged(self.path, i, "not a readable entry",
+                                      torn_tail=k == len(lines) - 1 and not ends_nl)
+            out.append(e)
+        return out

@@ -8,20 +8,21 @@ are returned as {"computable": False, "missing": <event kinds>} - declared
 absent, never estimated. (Gate principle: absence of the expected artifact
 is reported, not papered over.)
 
-Computable from Day 1/2 event kinds
-(ack, envelope.persisted, reject, dead.letter, dedupe.hit, hold.clarification,
- integrity.violation, hub.reflection, spoke.trace, turn.start,
- openmind.drift, agentopenmind.tainted, agentopenmind.trace):
+What it computes (docstring corrected 2026-10-13: an earlier list said the
+last four were not computable; the code below computes all of them when
+their events are on the log):
  - ack integrity rate          (ack backed by prior persist of same envelope)
  - routing latency             (persist ts -> ack ts, same envelope)
  - queue health                (dead-letter rate, hold count, taint count)
- - dedupe hits, signature/integrity rejections, sequence-gap incidents
-
-NOT computable yet - no emitting instrumentation exists:
- - escalation transport time   (no human-notification event)
- - playbook completion / completion-proof coverage (no playbook events)
- - heartbeat uptime            (external watchdog does not exist)
- - loop suspensions            (no suspension event kind)
+ - dedupe hits, rejections, sequence-gap incidents, loop suspensions
+ - escalation transport time   (escalation.raised -> human.notified); since
+                               2026-10-13 a failed notification is
+                               human.notify_failed and never counts as a
+                               transport, and a notifier that reported nothing
+                               is counted apart as "not_reported"
+ - playbook completion         (playbook.started / playbook.completed)
+ - heartbeat observations      (needs at least two heartbeat events; gap
+                               incidents need the Watchdog's cadence)
 """
 from __future__ import annotations
 
@@ -77,10 +78,15 @@ def compute_kpis(events: list[dict]) -> dict:
         "siding_resumes": len(by_kind["siding.resume"]),
     }
 
-    # escalation transport: raised -> human.notified, matched per queue+ts order
+    # escalation transport: raised -> human.notified, matched per queue+ts order.
+    # Only human.notified is a transport; human.notify_failed (2026-10-13) is
+    # counted as failed, and a notified entry whose notifier reported nothing
+    # ("transport": "not reported") is counted apart from confirmed ones.
     raised = by_kind["escalation.raised"]
     notified = by_kind["human.notified"]
-    if raised and notified:
+    esc_failed = [e for e in by_kind["human.notify_failed"]
+                  if str(e.get("queue", "")).startswith("escalation.")]
+    if raised and (notified or esc_failed):
         n_by_q = defaultdict(list)
         for n in notified:
             n_by_q[n.get("queue")].append(n["ts"])
@@ -89,9 +95,16 @@ def compute_kpis(events: list[dict]) -> dict:
             cands = [t for t in n_by_q.get(r.get("queue"), []) if t >= r["ts"]]
             if cands:
                 transports.append(min(cands) - r["ts"])
+        esc_notified = [n for n in notified
+                        if str(n.get("queue", "")).startswith("escalation.")]
         escalation_transport = {"computable": True, "n": len(transports),
                                 "unnotified": len(raised) - len(transports),
-                                "max_s": max(transports) if transports else None}
+                                "max_s": max(transports) if transports else None,
+                                "confirmed": sum(1 for n in esc_notified
+                                                 if n.get("transport") != "not reported"),
+                                "not_reported": sum(1 for n in esc_notified
+                                                    if n.get("transport") == "not reported"),
+                                "notify_failed": len(esc_failed)}
     else:
         escalation_transport = {"computable": False,
                                 "missing": ["escalation.raised/human.notified pairs"]}
