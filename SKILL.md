@@ -73,7 +73,7 @@ pip install -e ".[pillars,crypto,dev]"   # pillars pulled from source, never ven
 ### Verify before claiming anything works
 
 ```bash
-python -m pytest tests/                  # 325 passed + 5 skipped with no listing-assistants clone beside this repo; 330 passed with one (found at ../listing-assistants, or set IDENTITY_DIR)
+python -m pytest tests/                  # 334 passed + 5 skipped with no listing-assistants clone beside this repo; 339 passed with one (found at ../listing-assistants, or set IDENTITY_DIR)
 python demo/baseline_run.py              # must print all six pillar events nonzero
 python tools/kpi_gate.py baseline-out/audit-<id>.jsonl \
     --taints-expected 1 --selfcheck-bait-expected 1

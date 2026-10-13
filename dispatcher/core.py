@@ -197,20 +197,38 @@ class AuditLogBusy(RuntimeError):
 
 
 class _FileLock:
-    """An operating-system lock on <log>.lock, so processes write (and read)
-    the log one at a time (owner decision 2026-10-13, after the cold review:
-    two processes appending at the same instant forked the chain). POSIX:
-    flock; Windows: msvcrt.locking on the first byte. The lock file is
-    never removed. A second process waits up to `timeout` seconds, then
-    AuditLogBusy is raised and nothing is written."""
+    """An operating-system lock on <log>.lock, so processes take turns with
+    the log (owner decision 2026-10-13, after the cold review: two processes
+    appending at the same instant forked the chain). POSIX: flock, shared
+    for reads and exclusive for writes; Windows: msvcrt.locking on the first
+    byte, exclusive for both. The lock file is never removed. A process
+    waits up to `timeout` seconds, then AuditLogBusy is raised and nothing
+    is written.
 
-    def __init__(self, path: str, timeout: float = 30.0):
-        self.path, self.timeout, self.f = path + ".lock", timeout, None
+    Reading needs no write access (third review): if the lock file cannot be
+    opened for writing, a read opens it read-only, and if it cannot be
+    opened at all (absent in a read-only folder) the read goes ahead
+    unlocked - nothing can be writing to a log there through this class."""
+
+    def __init__(self, path: str, timeout: float = 30.0, shared: bool = False):
+        self.path, self.timeout, self.shared = path + ".lock", timeout, shared
+        self.f, self.exclusive = None, False
 
     def __enter__(self):
         if not os.path.isdir(os.path.dirname(os.path.abspath(self.path))):
             return                           # no folder: nothing to read or write yet
-        self.f = open(self.path, "a+b")
+        try:
+            self.f = open(self.path, "a+b")
+        except OSError:
+            if not self.shared:
+                raise
+            try:
+                self.f = open(self.path, "rb")
+            except OSError:
+                return                       # unlockable, read-only: read without a lock
+        self._acquire(exclusive=os.name == "nt" or not self.shared)
+
+    def _acquire(self, exclusive: bool) -> None:
         deadline = time.monotonic() + self.timeout
         while True:
             try:
@@ -220,15 +238,26 @@ class _FileLock:
                     msvcrt.locking(self.f.fileno(), msvcrt.LK_NBLCK, 1)
                 else:
                     import fcntl
-                    fcntl.flock(self.f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(self.f.fileno(),
+                                (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+                self.exclusive = exclusive
                 return
             except OSError:
                 if time.monotonic() > deadline:
                     self.f.close()
                     self.f = None
-                    raise AuditLogBusy(f"{self.path}: held by another process for more "
+                    raise AuditLogBusy(f"{self.path}: held by another program for more "
                                        f"than {self.timeout:.0f} s - nothing was written")
                 time.sleep(0.02)
+
+    def upgrade(self) -> None:
+        """A write inside a read this process already holds: make the lock
+        exclusive (POSIX converts the flock; Windows already holds it so)."""
+        if self.exclusive:
+            return
+        if self.f is None:
+            self.f = open(self.path, "a+b")
+        self._acquire(exclusive=True)
 
     def __exit__(self, *exc):
         if self.f is None:
@@ -242,6 +271,20 @@ class _FileLock:
         finally:
             self.f.close()
             self.f = None
+
+
+class _Held:
+    """What this process holds on one log file: shared by every AuditLog
+    instance on that file, so two instances in one process never wait on
+    each other (third review), and threads take turns through the RLock."""
+
+    def __init__(self):
+        self.rlock = threading.RLock()
+        self.flock = None
+
+
+_PROCESS_HELD: dict = {}
+_PROCESS_HELD_LOCK = threading.Lock()
 
 
 class AuditLog:
@@ -262,8 +305,6 @@ class AuditLog:
     def __init__(self, path: str):
         self.path = path
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        self._lock = threading.RLock()
-        self._held = False
         with self._guard():
             self._prev = self._recover_tip()
             self._stamp = self._file_stamp()
@@ -275,26 +316,38 @@ class AuditLog:
         constructor refuses one)."""
         o = cls.__new__(cls)
         o.path = path
-        o._lock, o._held = threading.RLock(), False
         o._prev, o._stamp, o._read_only = cls.GENESIS, None, True
         return o
 
     @contextlib.contextmanager
-    def _guard(self):
-        """This process's threads one at a time, and other processes one at
-        a time through the OS lock. Re-entrant within a process: a call made
-        while this instance already holds the OS lock does not take it again
-        (a second flock from the same process would wait on itself)."""
-        with self._lock:
-            if self._held:
+    def _guard(self, shared: bool = False):
+        """Threads of this process one at a time, other processes through the
+        OS lock (shared for reads, exclusive for writes). Re-entrant: a call
+        made while this process already holds the lock on this file - from
+        any AuditLog instance on it - does not take it again, and a write
+        inside a read upgrades it."""
+        key = os.path.realpath(self.path)
+        with _PROCESS_HELD_LOCK:
+            h = _PROCESS_HELD.setdefault(key, _Held())
+        with h.rlock:
+            if h.flock is not None:
+                if not shared:
+                    h.flock.upgrade()
                 yield
                 return
-            with _FileLock(self.path, self.LOCK_WAIT_S):
-                self._held = True
+            fl = _FileLock(self.path, self.LOCK_WAIT_S, shared=shared)
+            with fl:
+                h.flock = fl
                 try:
                     yield
                 finally:
-                    self._held = False
+                    h.flock = None
+
+    def holding(self):
+        """Hold the log's lock across several steps, e.g. check it, write a
+        state store, then record that on the log - so no other process can
+        change the log in between (third review)."""
+        return self._guard()
 
     def _file_stamp(self):
         """(size, modification time) of the file, or None if it is absent."""
@@ -395,7 +448,7 @@ class AuditLog:
         saved earlier (anchor() / verify_anchor()) is what shows that."""
         if not os.path.exists(path):
             raise ValueError(f"{path}: no such audit log")
-        with _FileLock(path, cls.LOCK_WAIT_S):
+        with cls.reader(path)._guard():          # exclusive, shared with this process's holders
             return cls._repair_torn_tail(path)
 
     @classmethod
@@ -513,12 +566,12 @@ class AuditLog:
         in a handoff) closes that: a regenerated log cannot reproduce the
         anchored head hash at the anchored position. Gap named in the
         2026-07-17 review, closed 2026-07-18."""
-        with self._guard():
+        with self._guard(shared=True):
             n = len(_log_lines(self.path)[0]) if os.path.exists(self.path) else 0
             return {"entries": n, "head_hash": self._prev}
 
     def verify_anchor(self, anchor: dict) -> dict:
-        with self._guard():
+        with self._guard(shared=True):
             return self._verify_anchor(anchor)
 
     def _verify_anchor(self, anchor: dict) -> dict:
@@ -558,7 +611,7 @@ class AuditLog:
         return {"ok": True, "reason": None}
 
     def verify_chain(self) -> dict:
-        with self._guard():
+        with self._guard(shared=True):
             return self._verify_chain()
 
     def _verify_chain(self) -> dict:
@@ -589,7 +642,7 @@ class AuditLog:
         return {"ok": True, "entries": n, "break_at": None}
 
     def read(self) -> list[dict]:
-        with self._guard():
+        with self._guard(shared=True):
             return self._read()
 
     def _read(self) -> list[dict]:

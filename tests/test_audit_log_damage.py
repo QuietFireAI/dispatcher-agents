@@ -544,7 +544,8 @@ def test_a_nested_check_does_not_wait_on_its_own_lock_and_releases_it(tmp_path, 
     a, b = AuditLog(p), AuditLog(p)
     b.append("x", {})
     a.append("y", {})              # a's file changed: _resync -> verify_chain inside the lock
-    assert a._held is False
+    from dispatcher import core
+    assert core._PROCESS_HELD[os.path.realpath(p)].flock is None     # released
     pr = subprocess.run([sys.executable, "-c",
                          "import sys; sys.path.insert(0, sys.argv[1]);"
                          "from dispatcher.core import _FileLock;"
@@ -589,3 +590,136 @@ def test_the_repair_gives_the_new_file_the_old_owner_where_it_can(tmp_path, monk
         assert calls[0][1:] == (st.st_uid, st.st_gid)
     else:
         assert calls == []
+
+
+# ------------------------------------------- the lock, third review
+def _no_write_open(real_open, writable_lock_exists):
+    """open() as in a folder this process may not write to."""
+    def fake(f, mode="r", *a, **k):
+        if str(f).endswith(".lock") and ("a" in mode or "w" in mode):
+            raise PermissionError(13, "read-only folder", str(f))
+        if str(f).endswith(".lock") and not writable_lock_exists:
+            raise FileNotFoundError(2, "no lock file", str(f))
+        return real_open(f, mode, *a, **k)
+    return fake
+
+
+@pytest.mark.parametrize("lock_file_there", [True, False])
+def test_a_log_in_a_folder_you_cannot_write_can_still_be_checked_and_read(tmp_path, monkeypatch, lock_file_there):
+    import builtins
+    from dispatcher import core
+    p = three(tmp_path)
+    monkeypatch.setattr(core, "open", _no_write_open(builtins.open, lock_file_there), raising=False)
+    assert AuditLog.check_file(p) == {"ok": True, "entries": 3, "break_at": None}
+    assert len(AuditLog.reader(p).read()) == 3
+    with pytest.raises(PermissionError):                 # writing there still needs the lock
+        AuditLog(p).append("x", {})
+
+
+def test_two_instances_in_one_process_never_wait_on_each_other(tmp_path, monkeypatch):
+    p = three(tmp_path)
+    monkeypatch.setattr(AuditLog, "LOCK_WAIT_S", 0.5)
+    a, b = AuditLog(p), AuditLog(p)
+    with a.holding():
+        b.append("inside", {})                           # same thread, other instance
+        assert AuditLog.check_file(p)["ok"]
+    assert AuditLog.check_file(p) == {"ok": True, "entries": 4, "break_at": None}
+
+
+def test_another_thread_waits_for_the_holder_in_this_process(tmp_path):
+    import threading
+    p = three(tmp_path)
+    a, b = AuditLog(p), AuditLog(p)
+    order = []
+    with a.holding():
+        t = threading.Thread(target=lambda: (b.append("t", {}), order.append("thread wrote")))
+        t.start()
+        t.join(0.3)
+        order.append("holder done")
+    t.join(10)
+    assert order == ["holder done", "thread wrote"]
+
+
+SHARED = ("import sys, time; sys.path.insert(0, sys.argv[1]);"
+          "from dispatcher.core import _FileLock;"
+          "l = _FileLock(sys.argv[2], shared=True); l.__enter__(); print('held', flush=True); time.sleep(5)")
+
+
+def test_readers_share_the_lock_and_a_writer_waits_for_them(tmp_path, monkeypatch):
+    from dispatcher import core
+    p = three(tmp_path)
+    monkeypatch.setattr(AuditLog, "LOCK_WAIT_S", 0.3)
+    pr = subprocess.Popen([sys.executable, "-c", SHARED, ROOT, p], stdout=subprocess.PIPE, text=True)
+    try:
+        assert pr.stdout.readline().strip() == "held"
+        if os.name == "nt":                              # Windows has no shared lock: readers wait too
+            with pytest.raises(core.AuditLogBusy):
+                AuditLog.reader(p).read()
+        else:
+            r = AuditLog.reader(p)                       # other readers: no wait
+            assert len(r.read()) == 3 and r.verify_chain()["ok"]
+            assert r.anchor()["entries"] == 3
+            assert r.verify_anchor({"entries": 0, "head_hash": AuditLog.GENESIS})["ok"]
+        with pytest.raises(core.AuditLogBusy):           # a writer waits for the reader
+            AuditLog(p)
+    finally:
+        pr.kill()
+        pr.wait()
+
+
+def test_a_write_inside_a_read_this_process_holds_takes_the_lock_for_writing(tmp_path):
+    p = three(tmp_path)
+    log = AuditLog(p)
+    probe = ("import sys; sys.path.insert(0, sys.argv[1]);"
+             "from dispatcher.core import _FileLock, AuditLogBusy;"
+             "l = _FileLock(sys.argv[2], 0.3, shared=True)\n"
+             "try:\n    l.__enter__(); print('read allowed')\nexcept AuditLogBusy:\n    print('kept out')")
+    import gc
+    import warnings
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        with log._guard(shared=True):
+            log.append("inside a read", {})
+            r = subprocess.run([sys.executable, "-c", probe, ROOT, p], capture_output=True, text=True,
+                               timeout=30)
+            assert r.stdout.strip() == "kept out"      # exclusive now: no reader while writing
+        gc.collect()
+    assert [w for w in seen if issubclass(w.category, ResourceWarning) and ".lock" in str(w.message)] == []
+    assert AuditLog.check_file(p) == {"ok": True, "entries": 4, "break_at": None}
+
+
+def test_a_write_inside_an_unlocked_read_in_a_read_only_folder_is_refused(tmp_path, monkeypatch):
+    import builtins
+    from dispatcher import core
+    p = three(tmp_path)
+    log = AuditLog(p)
+    os.remove(p + ".lock")
+    monkeypatch.setattr(core, "open", _no_write_open(builtins.open, False), raising=False)
+    with log._guard(shared=True):                        # read: no lock file, none can be made
+        with pytest.raises(PermissionError):
+            log.append("x", {})                          # a write needs the lock
+
+
+def test_a_read_through_a_read_only_lock_file_still_waits_for_a_writer(tmp_path, monkeypatch):
+    import builtins
+    from dispatcher import core
+    p = three(tmp_path)
+    monkeypatch.setattr(AuditLog, "LOCK_WAIT_S", 0.3)
+    pr = held_by_another_process(p)                     # a writer elsewhere holds it
+    try:
+        monkeypatch.setattr(core, "open", _no_write_open(builtins.open, True), raising=False)
+        with pytest.raises(core.AuditLogBusy):
+            AuditLog.reader(p).read()
+    finally:
+        pr.kill()
+        pr.wait()
+
+
+def test_a_repair_from_inside_this_processs_lock_does_not_wait_on_itself(tmp_path, monkeypatch):
+    p = three(tmp_path)
+    monkeypatch.setattr(AuditLog, "LOCK_WAIT_S", 0.5)
+    log = AuditLog(p)
+    open(p, "ab").write(b'{"half')
+    with log.holding():
+        rec = AuditLog.repair_torn_tail(p)
+    assert rec["complete_entries"] == 3 and AuditLog.check_file(p)["ok"]

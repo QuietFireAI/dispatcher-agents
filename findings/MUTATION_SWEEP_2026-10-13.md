@@ -50,9 +50,11 @@ operating-system lock for the log. After those changes:
 | Run | Code / tests | Mutants | Killed | Survived |
 |---|---|---|---|---|
 | 9. Whole sweep | lock added, 324 tests | 930 | 896 + 1 timeout | 33: the 3 equivalents and 30 in the new lock code |
-| 10. Whole sweep, final | this commit, 330 tests | 921 | 908 + 1 timeout | 12: 3 equivalent, 1 that only changes CPU use, 8 on Windows-only lines |
+| 10. Whole sweep | 008fb8a, 330 tests | 921 | 908 + 1 timeout | 12: 3 equivalent, 1 that only changes CPU use, 8 on Windows-only lines |
+| 11. Whole sweep | after the third review, 338 tests | 942 | 924 + 1 timeout | 17: the 12 above and 5 in the new lock code |
+| 12. Those 17 again | this commit, 339 tests (tests added, no core code changed since run 11) | 17 | 5 | 12: 3 equivalent, 1 CPU-only, 8 on Windows-only lines |
 
-Run 9 found 30 survivors in the lock code: the reader not tested to wait for the lock, the file handle not tested to be closed, the owner kept on repair, mixed old and new pairing, a nesting counter that the outer reset made meaningless (now a flag), redundant return values and a redundant POSIX unlock (removed). Windows-only lines cannot run on Linux; see below. Run 10 is the confirmation for this commit.
+Run 9 found 30 survivors in the lock code: the reader not tested to wait for the lock, the file handle not tested to be closed, the owner kept on repair, mixed old and new pairing, a nesting counter that the outer reset made meaningless (now a flag), redundant return values and a redundant POSIX unlock (removed). Windows-only lines cannot run on Linux; see below. Run 10 confirmed 008fb8a. A third review found that reads needed write access to the log's folder (now: shared lock for reads, read-only fallback), that a busy lock was not handled in listing-assistants, and that two AuditLog instances in one process could wait on each other (now one lock state per file per process). Runs 11 and 12 are the confirmation for this commit: 942 mutants, 929 killed, 1 timeout, 12 survived.
 
 ## What the survivors showed
 
