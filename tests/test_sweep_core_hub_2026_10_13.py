@@ -200,10 +200,8 @@ def test_damage_mid_file_is_not_a_cut_off_even_when_the_file_lacks_a_final_newli
     with pytest.raises(AuditLogDamaged) as ei:
         AuditLog(p)
     assert ei.value.torn_tail is False
-    reader = AuditLog.__new__(AuditLog)
-    reader.path = p
     with pytest.raises(AuditLogDamaged) as ei:
-        reader.read()
+        AuditLog.reader(p).read()
     assert ei.value.line == 2 and ei.value.torn_tail is False
 
 

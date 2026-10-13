@@ -264,8 +264,11 @@ class Hub:
             # queue is dispatcher-assigned routing, not caller-writable: splat the
             # untrusted record FIRST so the framing queue wins (a spoke must not be
             # able to redirect its escalation's audited queue).
-            self.audit.append("escalation.raised", {**record, "queue": queue})
-            self._notify(queue, record)
+            raised = self.audit.append("escalation.raised", {**record, "queue": queue})
+            # the outcome names this entry, so it can never be paired with
+            # another escalation - not even one another process raised on the
+            # same queue while this notifier ran (2026-10-13 second review)
+            self._notify(queue, record, raised_entry=raised if isinstance(raised, str) else None)
             return {"status": "escalated", "queue": queue}
 
     def register(self, agent_id: str, handler: Callable[[Envelope], None]):
@@ -399,7 +402,7 @@ class Hub:
         with self._lock:
             return self._notify(queue, record)
 
-    def _notify(self, queue: str, record: dict) -> str:
+    def _notify(self, queue: str, record: dict, raised_entry: str | None = None) -> str:
         """Calls the human notifier and records what actually happened
         (repair plan 1.1, 2026-10-13). The notifier's return value decides:
           - a dict whose "status" is in NOTIFY_DELIVERED -> human.notified
@@ -418,11 +421,13 @@ class Hub:
             res = self.human_notifier(queue, record)
         except Exception as e:  # recorded, never raised past the hub
             self.audit.append("human.notify_failed",
-                              {**record, "queue": queue, "error": repr(e)[:300]})
+                              {**record, "queue": queue, "raised_entry": raised_entry,
+                               "error": repr(e)[:300]})
             return "notify_failed"
         if not isinstance(res, dict):
             self.audit.append("human.notified",
-                              {**record, "queue": queue, "transport": "not reported"})
+                              {**record, "queue": queue, "raised_entry": raised_entry,
+                               "transport": "not reported"})
             return "not reported"
         status = res.get("status")
         # only a plain string status can claim delivery; anything else a
@@ -431,9 +436,11 @@ class Hub:
         # raised out of escalate after escalation.raised was written)
         if isinstance(status, str) and status in NOTIFY_DELIVERED:
             self.audit.append("human.notified",
-                              {**record, "queue": queue, "transport_status": status})
+                              {**record, "queue": queue, "raised_entry": raised_entry,
+                               "transport_status": status})
             return "notified"
-        failed = {**record, "queue": queue, "notifier_status": _plain(status)}
+        failed = {**record, "queue": queue, "raised_entry": raised_entry,
+                  "notifier_status": _plain(status)}
         for k in ("http_status", "channel", "error"):
             if k in res:
                 failed[f"notifier_{k}"] = str(res[k])[:300] if k == "error" else _plain(res[k])

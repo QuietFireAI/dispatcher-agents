@@ -225,3 +225,49 @@ def test_an_escalation_nobody_was_notified_about_has_no_transport_kpi(tmp_path):
     hub.escalate("escalation.hot_lead", {"client_context_id": "H"})
     k = compute_kpis(hub.audit.read())["escalation_transport_time"]
     assert k["computable"] is False
+
+
+
+# ------------------------------------------- second review: pairing by link
+def test_two_hubs_on_one_log_never_pair_one_escalation_with_the_others_page(tmp_path):
+    log = str(tmp_path / "shared.jsonl")
+    b = Hub(Routes(FIXTURE), AuditLog(log), human_notifier=lambda q, r: {"status": "failed"})
+
+    def a_notifier(q, r):        # while A's page is on its way, B raises on the same queue
+        b.escalate("escalation.hot_lead", {"client_context_id": "B"})
+        return {"status": "sent"}
+    a = Hub(Routes(FIXTURE), AuditLog(log), human_notifier=a_notifier)
+    a.escalate("escalation.hot_lead", {"client_context_id": "A"})
+    ev = AuditLog.reader(log).read()
+    order = [(e["kind"], e.get("client_context_id")) for e in ev if e["kind"].startswith(("escal", "human"))]
+    assert order == [("escalation.raised", "A"), ("escalation.raised", "B"),
+                     ("human.notify_failed", "B"), ("human.notified", "A")]
+    from dispatcher.kpi import pair_escalations
+    pairs = {r["client_context_id"]: (o["kind"], o["client_context_id"]) for r, o in pair_escalations(ev)}
+    assert pairs == {"A": ("human.notified", "A"), "B": ("human.notify_failed", "B")}
+    report = generate_report(ev, "P", "r", "B", steps=[])
+    assert "NOTIFICATION FAILED" in report.split("## escalations")[1].split("##")[0]
+
+
+def test_a_notification_that_answers_no_escalation_is_never_paired_with_one(tmp_path):
+    hub = hub_with(tmp_path, None)
+    hub.escalate("escalation.hot_lead", {"client_context_id": "C"})       # nobody to tell
+    hub.human_notifier = lambda q, r: {"status": "sent"}
+    hub.notify("escalation.hot_lead", {"client_context_id": "D"})
+    from dispatcher.kpi import pair_escalations
+    assert [o for _, o in pair_escalations(hub.audit.read())] == [None]
+
+
+def test_an_older_log_without_links_is_still_paired_by_order():
+    from dispatcher.kpi import pair_escalations
+    ev = [{"kind": "escalation.raised", "ts": 1, "queue": "escalation.x", "entry_hash": "h1"},
+          {"kind": "human.notified", "ts": 2, "queue": "escalation.x"}]
+    assert pair_escalations(ev)[0][1] is ev[1]
+
+
+def test_an_answered_escalation_is_not_answered_again_by_an_older_style_outcome():
+    from dispatcher.kpi import pair_escalations
+    ev = [{"kind": "escalation.raised", "ts": 1, "queue": "escalation.x", "entry_hash": "h1"},
+          {"kind": "human.notify_failed", "ts": 2, "queue": "escalation.x", "raised_entry": "h1"},
+          {"kind": "human.notified", "ts": 3, "queue": "escalation.x"}]       # no link: older style
+    assert pair_escalations(ev)[0][1] is ev[1]

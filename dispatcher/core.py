@@ -10,6 +10,7 @@ Doctrine encoded as executable behavior:
 Spec sources: DISPATCHER_CORE.md, 00-dispatcher/SKILL.md, SWARM.md v0.16.
 """
 from __future__ import annotations
+import contextlib
 import hashlib
 import json, os, threading, time, uuid
 from dataclasses import dataclass, field
@@ -191,6 +192,58 @@ def _parse(raw: bytes):
     return e if isinstance(e, dict) else None
 
 
+class AuditLogBusy(RuntimeError):
+    """Another process held the log's lock for longer than the wait allows."""
+
+
+class _FileLock:
+    """An operating-system lock on <log>.lock, so processes write (and read)
+    the log one at a time (owner decision 2026-10-13, after the cold review:
+    two processes appending at the same instant forked the chain). POSIX:
+    flock; Windows: msvcrt.locking on the first byte. The lock file is
+    never removed. A second process waits up to `timeout` seconds, then
+    AuditLogBusy is raised and nothing is written."""
+
+    def __init__(self, path: str, timeout: float = 30.0):
+        self.path, self.timeout, self.f = path + ".lock", timeout, None
+
+    def __enter__(self):
+        if not os.path.isdir(os.path.dirname(os.path.abspath(self.path))):
+            return                           # no folder: nothing to read or write yet
+        self.f = open(self.path, "a+b")
+        deadline = time.monotonic() + self.timeout
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    self.f.seek(0)
+                    msvcrt.locking(self.f.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except OSError:
+                if time.monotonic() > deadline:
+                    self.f.close()
+                    self.f = None
+                    raise AuditLogBusy(f"{self.path}: held by another process for more "
+                                       f"than {self.timeout:.0f} s - nothing was written")
+                time.sleep(0.02)
+
+    def __exit__(self, *exc):
+        if self.f is None:
+            return
+        try:
+            if os.name == "nt":                # Windows: unlock before closing
+                import msvcrt
+                self.f.seek(0)
+                msvcrt.locking(self.f.fileno(), msvcrt.LK_UNLCK, 1)
+            # POSIX: closing the file releases its flock
+        finally:
+            self.f.close()
+            self.f = None
+
+
 class AuditLog:
     """Append-only, HASH-CHAINED JSONL. Persist happens BEFORE delivery; the
     log is the single source of truth for KPIs - no self-reported metrics
@@ -204,31 +257,76 @@ class AuditLog:
     from trust in the file."""
 
     GENESIS = "GENESIS"
+    LOCK_WAIT_S = 30.0          # how long a writer waits for another process's lock
 
     def __init__(self, path: str):
         self.path = path
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        self._lock = threading.Lock()
-        self._prev = self._recover_tip()
-        self._size = self._file_size()
+        self._lock = threading.RLock()
+        self._held = False
+        with self._guard():
+            self._prev = self._recover_tip()
+            self._stamp = self._file_stamp()
 
-    def _file_size(self):
+    @classmethod
+    def reader(cls, path: str) -> "AuditLog":
+        """A read-only view of a log: read(), verify_chain(), anchor checks.
+        Opens nothing for writing and works on a damaged log (the
+        constructor refuses one)."""
+        o = cls.__new__(cls)
+        o.path = path
+        o._lock, o._held = threading.RLock(), False
+        o._prev, o._stamp, o._read_only = cls.GENESIS, None, True
+        return o
+
+    @contextlib.contextmanager
+    def _guard(self):
+        """This process's threads one at a time, and other processes one at
+        a time through the OS lock. Re-entrant within a process: a call made
+        while this instance already holds the OS lock does not take it again
+        (a second flock from the same process would wait on itself)."""
+        with self._lock:
+            if self._held:
+                yield
+                return
+            with _FileLock(self.path, self.LOCK_WAIT_S):
+                self._held = True
+                try:
+                    yield
+                finally:
+                    self._held = False
+
+    def _file_stamp(self):
+        """(size, modification time) of the file, or None if it is absent."""
         try:
-            return os.path.getsize(self.path)
+            st = os.stat(self.path)
         except FileNotFoundError:
             return None
+        return (st.st_size, st.st_mtime_ns)
+
+    def ensure_intact(self) -> None:
+        """Raise AuditLogDamaged now, writing nothing, if the next append
+        would refuse. For a caller about to write something ELSE (a state
+        store) that the log must then record: check first, so the other
+        write never happens without its record (2026-10-13 cold review: a
+        desk stopped after damage saved a snapshot the log never recorded)."""
+        with self._guard():
+            if self._file_stamp() != self._stamp:
+                self._resync()
+                self._stamp = self._file_stamp()
 
     def _resync(self) -> None:
-        """The file is not the size this process left it: someone else wrote,
-        cut or replaced it (found by the 2026-10-13 cold review: a desk kept
-        appending to a log damaged under it, and a second writer forked the
-        chain). Append again only if the whole chain verifies AND still holds
-        this process's last entry; then continue from the file's real tip.
-        Otherwise raise AuditLogDamaged and write nothing.
+        """The file's size or modification time is not what this process
+        left: someone else wrote, cut, edited or replaced it (found by the
+        2026-10-13 cold review: a desk kept appending to a log damaged under
+        it, and a second writer forked the chain). Append again only if the
+        whole chain verifies AND still holds this process's last entry; then
+        continue from the file's real tip. Otherwise raise AuditLogDamaged
+        and write nothing.
 
-        This catches every change that alters the file's size between two
-        appends. It does not stop two processes appending in the very same
-        instant; only an operating-system file lock does that."""
+        Writers that use this class take the OS lock, so they never append
+        at the same instant. An edit that keeps both the size and the
+        modification time is not seen here; verify_chain() still finds it."""
         chain = self.verify_chain()
         if not chain["ok"]:
             raise AuditLogDamaged(
@@ -269,9 +367,7 @@ class AuditLog:
     def check_file(cls, path: str) -> dict:
         """verify_chain() for a log that may be too damaged to open for
         writing (AuditLog(path) refuses a damaged file). Reads only."""
-        o = cls.__new__(cls)
-        o.path = path
-        return o.verify_chain()
+        return cls.reader(path).verify_chain()
 
     @classmethod
     def repair_torn_tail(cls, path: str) -> dict:
@@ -287,13 +383,23 @@ class AuditLog:
         sha256 of the partial bytes, side file), so the repair itself is on
         the chain. Returns that record.
 
-        Every process writing the log must be stopped first. A process still
-        holding it would find the file changed at its next append and refuse
-        to write (AuditLog._resync). The repair cannot tell a crash from
+        Stop every process using the log first. The repair takes the log's
+        OS lock, so it never runs during another process's write; a process
+        that still holds the log open sees the file changed at its next
+        append, finds the chain intact with its own entries in it, and
+        continues after the repair entry (AuditLog._resync). The repaired
+        file keeps the old one's permissions, and its owner where this
+        process may set it. If the swap fails, the log is unchanged and the
+        side file is removed again. The repair cannot tell a crash from
         someone cutting the log back and adding a partial line: an anchor
         saved earlier (anchor() / verify_anchor()) is what shows that."""
         if not os.path.exists(path):
             raise ValueError(f"{path}: no such audit log")
+        with _FileLock(path, cls.LOCK_WAIT_S):
+            return cls._repair_torn_tail(path)
+
+    @classmethod
+    def _repair_torn_tail(cls, path: str) -> dict:
         with open(path, "rb") as f:
             data = f.read()
         cut = data.rfind(b"\n") + 1           # start of the bytes after the last newline
@@ -349,10 +455,18 @@ class AuditLog:
                 f.write(prefix + entry.encode("utf-8") + nl)
                 f.flush()
                 os.fsync(f.fileno())
+            st = os.stat(path)
+            os.chmod(tmp, st.st_mode & 0o7777)
+            if hasattr(os, "chown"):
+                try:
+                    os.chown(tmp, st.st_uid, st.st_gid)
+                except PermissionError:
+                    pass                     # not allowed to give it away: kept as ours
             os.replace(tmp, path)
         except BaseException:
-            if os.path.exists(tmp):
-                os.remove(tmp)
+            for leftover in (tmp, side):     # nothing changed: leave nothing behind
+                if os.path.exists(leftover):
+                    os.remove(leftover)
             raise
         _fsync_dir(os.path.dirname(os.path.abspath(path)))
         return rec
@@ -364,13 +478,15 @@ class AuditLog:
         canon = json.dumps(body, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256((prev + canon).encode()).hexdigest()
 
-    def append(self, kind: str, record: dict) -> None:
+    def append(self, kind: str, record: dict) -> str:
         # Framing wins: a caller-supplied record can never shadow the log's own
         # ts/kind/chain fields. Without this, any splatted untrusted dict (see
         # Hub.escalate) could forge or erase an event kind - the audit log is
         # the single source of truth, so its framing is not caller-writable.
-        with self._lock:
-            if self._file_size() != self._size:
+        if getattr(self, "_read_only", False):
+            raise TypeError("AuditLog.reader() is read-only; open the log with AuditLog(path) to append")
+        with self._guard():
+            if self._file_stamp() != self._stamp:
                 self._resync()
             body = {**record, "ts": time.time(), "kind": kind}
             for k in ("prev_hash", "entry_hash"):
@@ -383,9 +499,10 @@ class AuditLog:
                 f.write(line + "\n")
                 f.flush()
                 os.fsync(f.fileno())
-                self._size = os.fstat(f.fileno()).st_size
+            self._stamp = self._file_stamp()   # after close: the final size and time
             self._needs_newline = False
             self._prev = eh
+            return eh
 
     def anchor(self) -> dict:
         """Export an external anchor: {entries, head_hash}. verify_chain
@@ -396,10 +513,15 @@ class AuditLog:
         in a handoff) closes that: a regenerated log cannot reproduce the
         anchored head hash at the anchored position. Gap named in the
         2026-07-17 review, closed 2026-07-18."""
-        n = len(_log_lines(self.path)[0]) if os.path.exists(self.path) else 0
-        return {"entries": n, "head_hash": self._prev}
+        with self._guard():
+            n = len(_log_lines(self.path)[0]) if os.path.exists(self.path) else 0
+            return {"entries": n, "head_hash": self._prev}
 
     def verify_anchor(self, anchor: dict) -> dict:
+        with self._guard():
+            return self._verify_anchor(anchor)
+
+    def _verify_anchor(self, anchor: dict) -> dict:
         """Verify a previously exported anchor against the current file.
         The entry at the anchored position must carry exactly the
         anchored hash, and the chain up to it must verify. Returns
@@ -436,6 +558,10 @@ class AuditLog:
         return {"ok": True, "reason": None}
 
     def verify_chain(self) -> dict:
+        with self._guard():
+            return self._verify_chain()
+
+    def _verify_chain(self) -> dict:
         """Walk the file and recompute every link. Returns
         {ok, entries, break_at} - break_at names the first bad line (1-based).
         On a break it also returns "reason" and "torn_tail". Since 2026-10-13
@@ -463,6 +589,10 @@ class AuditLog:
         return {"ok": True, "entries": n, "break_at": None}
 
     def read(self) -> list[dict]:
+        with self._guard():
+            return self._read()
+
+    def _read(self) -> list[dict]:
         """Every entry. An unreadable line raises AuditLogDamaged naming it
         (2026-10-13; it used to raise a bare JSONDecodeError)."""
         if not os.path.exists(self.path):

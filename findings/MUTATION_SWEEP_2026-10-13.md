@@ -31,7 +31,7 @@ mutant*) marks behaviour no test holds.
 | 2. Survivors again | 87aa5ff (watchdog test rewritten), 198 tests | 214 | 7 | 207 |
 | 3. Survivors after the new tests | working tree, 286 tests | 207 | 200 | 7 (one of the 207 was a duplicate, see 218 below) |
 | 4. The last 7 | working tree, 288 tests | 7 | 3 | 4 |
-| 5. Whole sweep again, packaged tool | this commit, 288 tests | 808 | 804 | 4 - the 4 below, 0 timeouts |
+| 5. Whole sweep again, packaged tool | ccbfb21, 288 tests | 808 | 804 | 4 - the 4 below, 0 timeouts |
 
 Run 5 confirmed commit ccbfb21. A cold review by a separate agent then
 found defects in the 1.1/1.2 code (below); fixing them added code, so the
@@ -41,9 +41,18 @@ sweep was run again on the fixed tree:
 |---|---|---|---|---|
 | 6. After the review fixes | working tree, 306 tests | 860 | 845 + 1 timeout (an infinite-loop mutant: caught) | 14: the 4 below and 10 in the new code |
 | 7. Those 14 again | working tree, 314 tests | 14 | 11 | 3 - the 3 equivalents still in the code |
-| 8. Whole sweep, final | this commit, 314 tests | 859 | 855 + 1 timeout (the same infinite-loop mutant: caught) | 3 - the 3 equivalents |
+| 8. Whole sweep | 7ded6a6, 314 tests | 859 | 855 + 1 timeout (the same infinite-loop mutant: caught) | 3 - the 3 equivalents |
 
-Run 8 is the confirmation for this commit.
+Run 8 confirmed commit 7ded6a6. The same reviewer then checked its
+findings against the fixes and found more (below). The owner chose an
+operating-system lock for the log. After those changes:
+
+| Run | Code / tests | Mutants | Killed | Survived |
+|---|---|---|---|---|
+| 9. Whole sweep | lock added, 324 tests | 930 | 896 + 1 timeout | 33: the 3 equivalents and 30 in the new lock code |
+| 10. Whole sweep, final | this commit, 330 tests | 921 | 908 + 1 timeout | 12: 3 equivalent, 1 that only changes CPU use, 8 on Windows-only lines |
+
+Run 9 found 30 survivors in the lock code: the reader not tested to wait for the lock, the file handle not tested to be closed, the owner kept on repair, mixed old and new pairing, a nesting counter that the outer reset made meaningless (now a flag), redundant return values and a redundant POSIX unlock (removed). Windows-only lines cannot run on Linux; see below. Run 10 is the confirmation for this commit.
 
 ## What the survivors showed
 
@@ -86,9 +95,20 @@ instead of truncating, so 3 remain.
 | Mutant | Why nothing changes | Evidence |
 |---|---|---|
 | `attestation.py:26` read chunk 65536 -> 65537 | A streamed SHA-256 does not depend on the chunk size | 300,000 random bytes hashed with both chunk sizes and in one call: identical |
-| `core.py:125` `to in SPECIAL and to in r` -> `to not in SPECIAL and to in r` | The whole clause implies `to in r`, which is already the first test on that line, so the clause can never change the answer | Exhaustive: all 32 receiver sets over {02, human, external, queue, any} x 6 destinations give the same result with the clause, with the mutant, and with no clause at all |
+| `core.py` `tuple_legal`: `to in SPECIAL and to in r` -> `to not in SPECIAL and to in r` | The whole clause implies `to in r`, which is already the first test on that line, so the clause can never change the answer | Exhaustive: all 32 receiver sets over {02, human, external, queue, any} x 6 destinations give the same result with the clause, with the mutant, and with no clause at all |
 | (removed with the truncate) `core.py:277` `f.flush()` -> `pass` after `truncate` | Nothing is written through that handle; truncate goes straight to the file | Size on disk read right after `truncate(3)`, before any flush: 3 |
+| `core.py` `_FileLock.__enter__` `time.sleep(0.02)` -> `pass` | Only the CPU use while waiting for another process's lock changes: the loop spins instead of sleeping, and still waits for the same deadline | The lock-wait tests pass with it; no result depends on how often the lock is retried |
 | `hub.py:64` `super().__init__(reason)` -> `pass` in `Reject` | Python's exception constructor stores the arguments before `__init__` runs, so `args` and `str()` are the same | `Reject`-shaped class with and without the call: same `args` and `str` |
+
+## Lines that a Linux sweep cannot run
+
+8 surviving mutants are on the Windows branch of `_FileLock`
+(`msvcrt.locking` and the `seek(0)` before it, lock and unlock). On Linux
+that branch never runs, so no Linux test can notice a change to it. The
+unmutated Windows branch is exercised by core CI on windows-latest, where
+`test_two_processes_appending_at_once_keep_one_chain` (three processes, 450
+entries), the lock-wait and the closed-handle tests run. No mutation run
+was made on Windows.
 
 ## Redundant clauses found on the way (no behaviour change, reported)
 
@@ -119,8 +139,29 @@ odd notifier answer raised out of the hub; a decision alert in
 listing-assistants called the notifier around the hub; two writers could
 fork the chain. All fixed with tests on 2026-10-13. One test it prompted me
 to recheck was passing for the wrong reason (its "cut back" case emptied
-the file); fixed. Not fixed: two processes appending in the very same
-instant - only an operating-system file lock stops that.
+the file); fixed.
+
+## What the second review found
+
+- Stopping a desk after the record broke saved a state snapshot the record
+  never logged, so after the documented repair the desk refused to start.
+  The swarm now checks the log can take the record before it writes the
+  store (`AuditLog.ensure_intact`).
+- The change check compared sizes only; it now compares size and
+  modification time. An edit that keeps both is still not seen at append
+  time; `verify_chain` finds it.
+- With two processes writing one log cleanly, escalations from both on one
+  queue could be paired with each other's page. Each outcome now names the
+  entry hash of the escalation it answers.
+- Core CI was red on Windows: a test of mine assumed LF line endings.
+- The repair reset the log's permissions and owner; it keeps them now. A
+  failed swap left a side file and gave a traceback; now nothing is left
+  and the reason is printed.
+- A test assertion that could not fail (the decision-alert test) is fixed.
+- Owner decision: writers take an OS lock on `<log>.lock` (flock on
+  POSIX, msvcrt.locking on Windows), so two processes no longer append at
+  the same instant. Shown by three processes appending 450 entries at
+  once; the test fails without the lock.
 
 ## What this does and does not show
 

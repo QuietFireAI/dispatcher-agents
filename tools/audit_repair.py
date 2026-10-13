@@ -19,6 +19,9 @@ guess. This tool is the person's way back:
       Exit 0 when repaired, 2 when refused.
 
 Stop whatever process writes to the log (a console session, a desk) first.
+The repair takes the log's lock (<log>.lock), so it never runs in the
+middle of another process's write; if the old log cannot be replaced
+(Windows, another program holding it open) nothing changes.
 """
 from __future__ import annotations
 
@@ -29,7 +32,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from dispatcher.core import AuditLog, AuditLogDamaged  # noqa: E402
+from dispatcher.core import AuditLog, AuditLogBusy, AuditLogDamaged  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -46,8 +49,13 @@ def main(argv=None) -> int:
         return 0 if r["ok"] else 1
     try:
         rec = AuditLog.repair_torn_tail(args.log)
-    except (AuditLogDamaged, ValueError) as e:
+    except (AuditLogDamaged, AuditLogBusy, ValueError) as e:
         print(json.dumps({"repaired": False, "refused": str(e)}))
+        return 2
+    except OSError as e:      # e.g. Windows: another program holds the log open
+        print(json.dumps({"repaired": False, "changed": "nothing",
+                          "refused": f"the repaired log could not replace the old one: {e!r}; "
+                                     f"stop every program using it and run this again"}))
         return 2
     print(json.dumps({"repaired": True, **rec,
                       "chain": AuditLog.check_file(args.log)}))

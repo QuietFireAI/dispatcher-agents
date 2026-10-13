@@ -76,9 +76,7 @@ def main(argv=None) -> int:
         print(f"FAIL audit chain broken at line {chain['break_at']}: {chain['reason']}"
               + (" (a write cut off at the end)" if chain.get("torn_tail") else ""))
         return 1
-    reader = AuditLog.__new__(AuditLog)
-    reader.path = a.audit_log
-    events = reader.read()
+    events = AuditLog.reader(a.audit_log).read()
     v = gate(events, a.taints_expected, a.selfcheck_bait_expected)
     k = compute_kpis(events)
     print("delta-class (recorded, not thresholded):",

@@ -120,7 +120,7 @@ def test_a_repair_that_dies_before_the_swap_leaves_the_log_as_it_was(tmp_path, m
     # os.replace (2026-10-13 cold review: the earlier repair cut the log and
     # then appended, so a crash between the two left a cut log with no record
     # of why). Dying before the swap must leave the original untouched, no
-    # temporary file behind, and the repair still possible.
+    # temporary or side file behind, and the repair still possible.
     from dispatcher import core
     p = three(tmp_path)
     data = raw(p)
@@ -134,11 +134,11 @@ def test_a_repair_that_dies_before_the_swap_leaves_the_log_as_it_was(tmp_path, m
     with pytest.raises(RuntimeError):
         AuditLog.repair_torn_tail(p)
     assert raw(p) == data + b'{"half'
-    assert not [f for f in os.listdir(str(tmp_path)) if ".repair-" in f]
+    assert not [f for f in os.listdir(str(tmp_path)) if ".repair-" in f or ".torn-" in f]
     monkeypatch.undo()
-    rec = AuditLog.repair_torn_tail(p)                    # runs again, new side file name
+    rec = AuditLog.repair_torn_tail(p)                    # runs again
     assert raw(p).startswith(data) and AuditLog.check_file(p)["ok"]
-    assert len([f for f in os.listdir(str(tmp_path)) if ".torn-" in f]) == 2
+    assert len([f for f in os.listdir(str(tmp_path)) if ".torn-" in f]) == 1
     assert rec["complete_entries"] == 3
 
 
@@ -334,12 +334,15 @@ def test_a_second_repair_in_the_same_second_gets_its_own_side_file(tmp_path, mon
 
 
 def test_the_repaired_log_keeps_the_files_own_line_endings(tmp_path):
+    # LF and CRLF files built byte for byte, so the test means the same on
+    # Windows, where text-mode appends write CRLF (core CI run 38458144436)
     p = three(tmp_path)
-    open(p, "ab").write(b'{"half')
+    data = raw(p).replace(b"\r\n", b"\n")
+    open(p, "wb").write(data + b'{"half')
     AuditLog.repair_torn_tail(p)
     assert b"\r" not in raw(p)
     q = three(tmp_path, "b.jsonl")
-    data = raw(q)                                        # read before opening for write
+    data = raw(q).replace(b"\r\n", b"\n")              # read before opening for write
     open(q, "wb").write(data.replace(b"\n", b"\r\n") + b'{"half')
     AuditLog.repair_torn_tail(q)
     assert raw(q).endswith(b"}\r\n") and raw(q).count(b"\r\n") == 4
@@ -387,3 +390,202 @@ def test_a_writer_whose_entries_are_gone_is_not_told_it_was_a_cut_off_write(tmp_
         w.append("y", {})
     assert ei.value.torn_tail is False and ei.value.line is None
     assert "damaged (no single line)" in str(ei.value)
+
+
+
+# ------------------- the OS lock and the stamp (owner decision 2026-10-13, second review)
+WRITER = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from dispatcher.core import AuditLog
+log = AuditLog(sys.argv[2])
+for n in range(int(sys.argv[4])):
+    log.append("w", {"who": sys.argv[3], "n": n})
+"""
+
+
+def test_two_processes_appending_at_once_keep_one_chain(tmp_path):
+    p = str(tmp_path / "a.jsonl")
+    script = tmp_path / "writer.py"
+    script.write_text(WRITER, encoding="utf-8")
+    procs = [subprocess.Popen([sys.executable, str(script), ROOT, p, who, "150"])
+             for who in ("A", "B", "C")]
+    assert [pr.wait(timeout=120) for pr in procs] == [0, 0, 0]
+    assert AuditLog.check_file(p) == {"ok": True, "entries": 450, "break_at": None}
+    got = [(e["who"], e["n"]) for e in AuditLog.reader(p).read()]
+    assert sorted(got) == sorted((w, n) for w in "ABC" for n in range(150))
+
+
+def test_a_writer_that_cannot_get_the_lock_writes_nothing(tmp_path, monkeypatch):
+    from dispatcher import core
+    p = three(tmp_path)
+    log = AuditLog(p)
+    before = raw(p)
+    monkeypatch.setattr(AuditLog, "LOCK_WAIT_S", 0.2)
+    holder = subprocess.Popen([sys.executable, "-c", (
+        "import sys, time; sys.path.insert(0, sys.argv[1]);"
+        "from dispatcher.core import _FileLock;"
+        "l = _FileLock(sys.argv[2]); l.__enter__(); print('held', flush=True); time.sleep(5)"),
+        ROOT, p], stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(core.AuditLogBusy, match="nothing was written"):
+            log.append("x", {})
+    finally:
+        holder.kill()
+        holder.wait()
+    assert raw(p) == before
+    log.append("x", {})                                 # free again
+    assert AuditLog.check_file(p)["ok"]
+
+
+def test_an_edit_that_keeps_the_size_is_still_refused(tmp_path):
+    p = three(tmp_path)
+    log = AuditLog(p)
+    st = os.stat(p)
+    data = raw(p)
+    open(p, "wb").write(data.replace(b'"n": 1', b'"n": 7'))    # same size
+    os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    assert os.path.getsize(p) == st.st_size
+    with pytest.raises(AuditLogDamaged) as ei:
+        log.append("y", {})
+    assert ei.value.line == 2 and "does not link" in ei.value.reason
+
+
+def test_ensure_intact_checks_without_writing(tmp_path):
+    p = three(tmp_path)
+    log = AuditLog(p)
+    log.ensure_intact()                                  # nothing changed: fine
+    other = AuditLog(p)
+    other.append("x", {})
+    log.ensure_intact()                                  # another writer's valid entry: fine
+    before = raw(p)
+    open(p, "ab").write(b'{"half')
+    with pytest.raises(AuditLogDamaged):
+        log.ensure_intact()
+    assert raw(p) == before + b'{"half'
+
+
+def test_a_reader_reads_a_damaged_log_without_opening_it_for_writing(tmp_path):
+    p = three(tmp_path)
+    open(p, "ab").write(b'{"half')
+    r = AuditLog.reader(p)
+    assert r.verify_chain()["torn_tail"] is True
+    with pytest.raises(AuditLogDamaged):
+        r.read()
+
+
+def test_the_repair_keeps_the_logs_permissions(tmp_path):
+    p = three(tmp_path)
+    open(p, "ab").write(b'{"half')
+    os.chmod(p, 0o640)
+    before = os.stat(p).st_mode
+    AuditLog.repair_torn_tail(p)
+    assert os.stat(p).st_mode == before
+
+
+def test_the_cli_reports_a_failed_swap_and_changes_nothing(tmp_path):
+    p = three(tmp_path)
+    open(p, "ab").write(b'{"half')
+    before = raw(p)
+    script = tmp_path / "fail_replace.py"
+    script.write_text(
+        "import os, runpy, sys\n"
+        "def no(a, b):\n    raise PermissionError(13, 'in use by another program')\n"
+        "os.replace = no\n"
+        "sys.argv = [sys.argv[1], sys.argv[2]]\n"
+        "runpy.run_path(sys.argv[0], run_name='__main__')\n", encoding="utf-8")
+    r = subprocess.run([sys.executable, str(script), os.path.join(ROOT, "tools", "audit_repair.py"), p],
+                       capture_output=True, text=True)
+    assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+    out = json.loads(r.stdout)
+    assert out["repaired"] is False and out["changed"] == "nothing" and "in use" in out["refused"]
+    assert raw(p) == before
+    assert not [f for f in os.listdir(str(tmp_path)) if ".torn-" in f or ".repair-" in f]
+
+
+# ----------------------------------------- the lock, as the third sweep asked
+HOLD = ("import sys, time; sys.path.insert(0, sys.argv[1]);"
+        "from dispatcher.core import _FileLock;"
+        "l = _FileLock(sys.argv[2]); l.__enter__(); print('held', flush=True); time.sleep(5)")
+
+
+def held_by_another_process(p):
+    pr = subprocess.Popen([sys.executable, "-c", HOLD, ROOT, p], stdout=subprocess.PIPE, text=True)
+    assert pr.stdout.readline().strip() == "held"
+    return pr
+
+
+def test_a_reader_waits_for_a_writer_in_another_process(tmp_path, monkeypatch):
+    from dispatcher import core
+    p = three(tmp_path)
+    monkeypatch.setattr(AuditLog, "LOCK_WAIT_S", 0.2)
+    pr = held_by_another_process(p)
+    try:
+        with pytest.raises(core.AuditLogBusy):
+            AuditLog.reader(p).read()
+        with pytest.raises(core.AuditLogBusy):
+            AuditLog.check_file(p)
+    finally:
+        pr.kill()
+        pr.wait()
+    assert len(AuditLog.reader(p).read()) == 3
+
+
+def test_a_reader_cannot_append(tmp_path):
+    p = three(tmp_path)
+    with pytest.raises(TypeError, match="read-only"):
+        AuditLog.reader(p).append("x", {})
+
+
+def test_a_nested_check_does_not_wait_on_its_own_lock_and_releases_it(tmp_path, monkeypatch):
+    p = three(tmp_path)
+    monkeypatch.setattr(AuditLog, "LOCK_WAIT_S", 0.5)
+    a, b = AuditLog(p), AuditLog(p)
+    b.append("x", {})
+    a.append("y", {})              # a's file changed: _resync -> verify_chain inside the lock
+    assert a._held is False
+    pr = subprocess.run([sys.executable, "-c",
+                         "import sys; sys.path.insert(0, sys.argv[1]);"
+                         "from dispatcher.core import _FileLock;"
+                         "l = _FileLock(sys.argv[2], 0.5); l.__enter__(); print('got it')",
+                         ROOT, p], capture_output=True, text=True, timeout=30)
+    assert pr.stdout.strip() == "got it"
+
+
+def test_the_lock_closes_its_file_every_time(tmp_path, monkeypatch):
+    import gc
+    import warnings
+    from dispatcher import core
+    p = three(tmp_path)
+    monkeypatch.setattr(AuditLog, "LOCK_WAIT_S", 0.2)
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        AuditLog(p).append("x", {})                     # lock taken and given back
+        pr = held_by_another_process(p)
+        try:
+            with pytest.raises(core.AuditLogBusy):
+                AuditLog.reader(p).read()               # lock never got: file closed too
+        finally:
+            pr.kill()
+            pr.wait()
+        gc.collect()
+    leaks = [w for w in seen if issubclass(w.category, ResourceWarning) and ".lock" in str(w.message)]
+    assert leaks == []
+
+
+def test_the_repair_gives_the_new_file_the_old_owner_where_it_can(tmp_path, monkeypatch):
+    from dispatcher import core
+    p = three(tmp_path)
+    open(p, "ab").write(b'{"half')
+    st = os.stat(p)
+    calls = []
+    if hasattr(os, "chown"):
+        real = os.chown
+        monkeypatch.setattr(core.os, "chown", lambda f, u, g: (calls.append((f, u, g)), real(f, u, g)))
+    AuditLog.repair_torn_tail(p)
+    if hasattr(os, "chown"):
+        assert len(calls) == 1 and calls[0][0].startswith(p + ".repair-")
+        assert calls[0][1:] == (st.st_uid, st.st_gid)
+    else:
+        assert calls == []

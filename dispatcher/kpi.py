@@ -34,23 +34,36 @@ NOTIFY_OUTCOMES = ("human.notified", "human.notify_failed")
 
 def pair_escalations(events: list[dict]) -> list[tuple[dict, dict | None]]:
     """Each escalation.raised with the notification outcome written for it,
-    in log order. Hub.escalate writes escalation.raised and then, under the
-    same lock, that escalation's outcome (human.notified or
-    human.notify_failed) on the same queue - so an escalation's outcome is
-    the first outcome on its queue after it and before the next escalation
-    on that queue. An outcome is never shared: one escalation's delivery
-    cannot stand in for another's failure (2026-10-13 cold review: matching
-    by queue and time alone let a later page on the same queue cover an
-    earlier failed one)."""
+    in log order. Since the second 2026-10-13 review every outcome carries
+    "raised_entry": the entry_hash of the escalation.raised it answers (or
+    None), and pairing is exact. Logs written before that are paired by
+    order: the first outcome on the escalation's queue after it and before
+    the next escalation on that queue. An outcome is never shared: one
+    escalation's delivery cannot stand in for another's failure (first
+    review: matching by queue and time alone let a later page cover an
+    earlier failed one; second review: two processes raising on one queue
+    could still interleave)."""
     pairs: list[list] = []
     waiting: dict = {}
+    by_entry: dict = {}
     for e in events:
         k = e.get("kind")
         if k == "escalation.raised":
+            if e.get("entry_hash"):
+                by_entry[e["entry_hash"]] = len(pairs)
             waiting[e.get("queue")] = len(pairs)
             pairs.append([e, None])
+        elif k in NOTIFY_OUTCOMES and "raised_entry" in e:
+            # written since the second review: the outcome names its
+            # escalation's entry_hash, or None when it answers no escalation
+            # (a queue landing, Hub.notify). Exact; log order does not matter.
+            i = by_entry.get(e["raised_entry"]) if e["raised_entry"] else None
+            if i is not None and pairs[i][1] is None:
+                pairs[i][1] = e
+                if waiting.get(e.get("queue")) == i:
+                    waiting.pop(e.get("queue"))
         elif k in NOTIFY_OUTCOMES and e.get("queue") in waiting:
-            pairs[waiting.pop(e.get("queue"))][1] = e
+            pairs[waiting.pop(e.get("queue"))][1] = e     # older logs: queue order
     return [(r, o) for r, o in pairs]
 
 
