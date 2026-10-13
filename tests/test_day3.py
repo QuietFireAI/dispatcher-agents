@@ -414,12 +414,23 @@ def test_consent_gate_holds_without_recorded_consent(tmp_path):
 # ----------------------------------------------------- heartbeat + playbook KPI
 def test_watchdog_names_gap_incidents_never_percentages(tmp_path):
     from dispatcher.runs import heartbeat, Watchdog
-    import time as _t
     hub = make_hub(tmp_path)
-    heartbeat(hub); _t.sleep(0.01); heartbeat(hub); _t.sleep(0.06); heartbeat(hub)
-    obs = Watchdog(cadence_s=0.01).observe(hub.audit.read())
-    assert obs["computable"] and obs["beats"] == 3 and obs["gap_incidents"] == 1
+    heartbeat(hub); heartbeat(hub); heartbeat(hub)
+    beats = [e for e in hub.audit.read() if e["kind"] == "heartbeat"]
+    assert len(beats) == 3 and all(e["source"] == "hub" for e in beats)
+    # The gap logic gets exact timestamps. It used to get real sleeps
+    # (0.01 s, then 0.06 s, cadence 0.01 s), and on Windows the 15.6 ms
+    # timer tick plus a slow fsync pushed the FIRST gap past 2x cadence too
+    # (core CI run 38437120185: gap_incidents 2, not 1).
+    events = [{"kind": "heartbeat", "ts": t} for t in (100.0, 101.0, 103.0, 105.5)]
+    events.append({"kind": "other", "ts": 200.0})          # not a beat
+    obs = Watchdog(cadence_s=1.0).observe(events)
+    # gaps 1.0, 2.0, 2.5: only a gap MORE than twice the cadence is an incident
+    assert obs["computable"] and obs["beats"] == 4 and obs["gap_incidents"] == 1
+    assert obs["max_gap_s"] == 2.5 and obs["span_s"] == 5.5
     assert "uptime" not in obs                            # no invented %
+    assert Watchdog(cadence_s=1.0).observe(events[:1])["computable"] is False
+    assert Watchdog(cadence_s=1.0).observe(hub.audit.read())["beats"] == 3
 
 
 def test_playbook_completion_counted_from_log_only(tmp_path):
