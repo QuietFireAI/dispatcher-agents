@@ -28,15 +28,17 @@ EXPECTED: seven installs, no errors. (PEP 668 systems: add
 
 Run every pillar's OWN suite from its own clone: `python3 -m pytest -q`
 EXPECTED, exactly: open-mind 9 | before-turn 6 | pre-response-selfcheck 11 |
-agent-open-mind 27 | sleep-marks 20 | splitvantage 12. Any other number =
+agent-open-mind 27 | sleep-marks 20 | splitvantage 14 (at the commits pinned
+in pyproject.toml; checked 2026-10-13). Any other number =
 that pillar regressed; stop, report the raw failure. Do not proceed to
 integration on a broken pillar - the set cannot be validated on a bad part.
 
 Then the dispatcher's suite from its clone: `python3 -m pytest tests/ -q`
-EXPECTED: 132 passed, 5 skipped. (The 5 identity-dependent tests activate
+EXPECTED: 193 passed, 5 skipped. (The 5 identity-dependent tests activate
 when IDENTITY_DIR points at a listing-assistants clone, or when one sits at
-the conventional sibling path `../listing-assistants` - then 137 passed, as
-of 2026-10-12.)
+the conventional sibling path `../listing-assistants` - then 198 passed, as
+of 2026-10-13. CI runs both: the clone alone, and with the listing identity
+on Linux 3.10/3.12/3.13 and Windows, where any skip fails the job.)
 
 ## PHASE 2 - Six pillars together on the bare dispatcher
 
