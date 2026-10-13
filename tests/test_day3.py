@@ -250,8 +250,14 @@ def test_p11_demo_end_to_end(tmp_path, monkeypatch):
                     "## kpis", "## manners re-injections"):
         assert section in report                    # full AFTER_ACTION schema
     assert "TRIGGERED" in report                    # both gates fired
-    assert "NOT INSTRUMENTED" in report             # declared, not faked
-    assert "'computable': True" in report           # escalation transport real
+    # the demo's notifier appends to a list and reports nothing, so the
+    # report says delivery is unconfirmed - no transport time is claimed
+    # (2026-10-13: it used to print a transport time for it)
+    esc = report.split("## escalations")[1].split("##")[0]
+    assert "the notifier reported nothing - delivery unconfirmed" in esc
+    assert "transport 0" not in esc and "NOT INSTRUMENTED" not in esc
+    assert "'computable': True" in report           # outcome paired from the log
+    assert "'not_reported': 1" in report
 
 
 # --------------------------------------------- loop protection + manners (Day 5)

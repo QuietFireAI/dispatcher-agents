@@ -29,6 +29,31 @@ from __future__ import annotations
 from collections import defaultdict
 
 
+NOTIFY_OUTCOMES = ("human.notified", "human.notify_failed")
+
+
+def pair_escalations(events: list[dict]) -> list[tuple[dict, dict | None]]:
+    """Each escalation.raised with the notification outcome written for it,
+    in log order. Hub.escalate writes escalation.raised and then, under the
+    same lock, that escalation's outcome (human.notified or
+    human.notify_failed) on the same queue - so an escalation's outcome is
+    the first outcome on its queue after it and before the next escalation
+    on that queue. An outcome is never shared: one escalation's delivery
+    cannot stand in for another's failure (2026-10-13 cold review: matching
+    by queue and time alone let a later page on the same queue cover an
+    earlier failed one)."""
+    pairs: list[list] = []
+    waiting: dict = {}
+    for e in events:
+        k = e.get("kind")
+        if k == "escalation.raised":
+            waiting[e.get("queue")] = len(pairs)
+            pairs.append([e, None])
+        elif k in NOTIFY_OUTCOMES and e.get("queue") in waiting:
+            pairs[waiting.pop(e.get("queue"))][1] = e
+    return [(r, o) for r, o in pairs]
+
+
 def compute_kpis(events: list[dict]) -> dict:
     by_kind: dict[str, list[dict]] = defaultdict(list)
     for e in events:
@@ -78,33 +103,25 @@ def compute_kpis(events: list[dict]) -> dict:
         "siding_resumes": len(by_kind["siding.resume"]),
     }
 
-    # escalation transport: raised -> human.notified, matched per queue+ts order.
-    # Only human.notified is a transport; human.notify_failed (2026-10-13) is
-    # counted as failed, and a notified entry whose notifier reported nothing
-    # ("transport": "not reported") is counted apart from confirmed ones.
+    # escalation transport: each escalation paired with its own outcome
+    # (pair_escalations). Only human.notified is a transport;
+    # human.notify_failed is counted as failed, and a notified entry whose
+    # notifier reported nothing ("transport": "not reported") is counted
+    # apart from confirmed ones.
     raised = by_kind["escalation.raised"]
-    notified = by_kind["human.notified"]
-    esc_failed = [e for e in by_kind["human.notify_failed"]
-                  if str(e.get("queue", "")).startswith("escalation.")]
-    if raised and (notified or esc_failed):
-        n_by_q = defaultdict(list)
-        for n in notified:
-            n_by_q[n.get("queue")].append(n["ts"])
-        transports = []
-        for r in raised:
-            cands = [t for t in n_by_q.get(r.get("queue"), []) if t >= r["ts"]]
-            if cands:
-                transports.append(min(cands) - r["ts"])
-        esc_notified = [n for n in notified
-                        if str(n.get("queue", "")).startswith("escalation.")]
+    pairs = pair_escalations(events)
+    if raised and any(o for _, o in pairs):
+        notified = [(r, o) for r, o in pairs if o and o["kind"] == "human.notified"]
+        transports = [o["ts"] - r["ts"] for r, o in notified]
         escalation_transport = {"computable": True, "n": len(transports),
                                 "unnotified": len(raised) - len(transports),
                                 "max_s": max(transports) if transports else None,
-                                "confirmed": sum(1 for n in esc_notified
-                                                 if n.get("transport") != "not reported"),
-                                "not_reported": sum(1 for n in esc_notified
-                                                    if n.get("transport") == "not reported"),
-                                "notify_failed": len(esc_failed)}
+                                "confirmed": sum(1 for _, o in notified
+                                                 if o.get("transport") != "not reported"),
+                                "not_reported": sum(1 for _, o in notified
+                                                    if o.get("transport") == "not reported"),
+                                "notify_failed": sum(1 for _, o in pairs
+                                                     if o and o["kind"] == "human.notify_failed")}
     else:
         escalation_transport = {"computable": False,
                                 "missing": ["escalation.raised/human.notified pairs"]}

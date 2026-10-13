@@ -139,19 +139,21 @@ class AuditLogDamaged(Exception):
     path, AuditLog.repair_torn_tail(path), which a person runs. Any other
     unreadable line is damage or tampering and has no automatic repair."""
 
-    def __init__(self, path: str, line: int, reason: str, torn_tail: bool):
+    def __init__(self, path: str, line, reason: str, torn_tail: bool):
         self.path, self.line, self.reason, self.torn_tail = path, line, reason, torn_tail
         if torn_tail:
             how = ("this looks like a write that was cut off (for example by a "
-                   "power loss). To recover, a person runs "
-                   "AuditLog.repair_torn_tail(path) (tools/audit_repair.py in "
-                   "dispatcher-agents): it moves that partial line to a side "
-                   "file, keeps every complete entry, and records the repair "
-                   "on the chain")
+                   "power loss). To recover, stop every process using the log; "
+                   "then a person runs AuditLog.repair_torn_tail(path) "
+                   "(dispatcher-agents: tools/audit_repair.py; a product built "
+                   "on this core may give it its own command): it moves "
+                   "that partial line to a side file, keeps every complete "
+                   "entry, and records the repair on the chain")
         else:
             how = ("this is not a cut-off last write; nothing repairs it "
                    "automatically. Keep the file as it is and investigate")
-        super().__init__(f"audit log {path} is damaged at line {line}: {reason}. "
+        where = f"at line {line}" if line else "(no single line)"
+        super().__init__(f"audit log {path} is damaged {where}: {reason}. "
                          f"Nothing was written. {how}.")
 
 
@@ -166,6 +168,18 @@ def _log_lines(path: str):
         if raw.strip():
             out.append((i, raw.rstrip(b"\r")))
     return out, data.endswith(b"\n") or not data
+
+
+def _fsync_dir(d: str) -> None:
+    """Make a rename in folder d durable. POSIX only: Windows cannot open a
+    folder to sync it, and its rename is already ordered with the data."""
+    if os.name == "nt":
+        return
+    fd = os.open(d, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _parse(raw: bytes):
@@ -195,6 +209,40 @@ class AuditLog:
         self.path = path
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self._lock = threading.Lock()
+        self._prev = self._recover_tip()
+        self._size = self._file_size()
+
+    def _file_size(self):
+        try:
+            return os.path.getsize(self.path)
+        except FileNotFoundError:
+            return None
+
+    def _resync(self) -> None:
+        """The file is not the size this process left it: someone else wrote,
+        cut or replaced it (found by the 2026-10-13 cold review: a desk kept
+        appending to a log damaged under it, and a second writer forked the
+        chain). Append again only if the whole chain verifies AND still holds
+        this process's last entry; then continue from the file's real tip.
+        Otherwise raise AuditLogDamaged and write nothing.
+
+        This catches every change that alters the file's size between two
+        appends. It does not stop two processes appending in the very same
+        instant; only an operating-system file lock does that."""
+        chain = self.verify_chain()
+        if not chain["ok"]:
+            raise AuditLogDamaged(
+                self.path, chain["break_at"],
+                f"{chain['reason']} (the file changed since this process last wrote it)",
+                torn_tail=chain["torn_tail"])
+        if self._prev != self.GENESIS and (
+                not os.path.exists(self.path)
+                or self._prev not in {(_parse(r) or {}).get("entry_hash")
+                                      for _, r in _log_lines(self.path)[0]}):
+            raise AuditLogDamaged(
+                self.path, None, "entries this process wrote are no longer in the "
+                "file - it was cut back, replaced or deleted while in use",
+                torn_tail=False)
         self._prev = self._recover_tip()
 
     def _recover_tip(self) -> str:
@@ -233,10 +281,17 @@ class AuditLog:
           - the bytes after the last newline are not a readable entry, and
           - every line before them is readable and the chain over them verifies.
         Then: the partial bytes are written to a new side file
-        <path>.torn-<UTC time>-<sha12> (flushed to disk first), the log is cut
-        back to its last complete entry, and an audit.tail_quarantined entry
-        (line, byte count, sha256 of the partial bytes, side file) is
-        appended, so the repair itself is on the chain. Returns that record."""
+        <path>.torn-<UTC time>-<sha12> (flushed to disk first), and the log is
+        replaced in one step (os.replace) by every complete entry, byte for
+        byte, followed by an audit.tail_quarantined entry (line, byte count,
+        sha256 of the partial bytes, side file), so the repair itself is on
+        the chain. Returns that record.
+
+        Every process writing the log must be stopped first. A process still
+        holding it would find the file changed at its next append and refuse
+        to write (AuditLog._resync). The repair cannot tell a crash from
+        someone cutting the log back and adding a partial line: an anchor
+        saved earlier (anchor() / verify_anchor()) is what shows that."""
         if not os.path.exists(path):
             raise ValueError(f"{path}: no such audit log")
         with open(path, "rb") as f:
@@ -268,18 +323,38 @@ class AuditLog:
         digest = hashlib.sha256(tail).hexdigest()
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         side = f"{path}.torn-{stamp}-{digest[:12]}"
-        with open(side, "xb") as f:            # never overwrite an earlier side file
+        k = 1
+        while os.path.exists(side):            # never overwrite an earlier side file
+            k += 1
+            side = f"{path}.torn-{stamp}-{digest[:12]}-{k}"
+        with open(side, "xb") as f:
             f.write(tail)
-            f.flush()
-            os.fsync(f.fileno())
-        with open(path, "r+b") as f:
-            f.truncate(len(prefix))
             f.flush()
             os.fsync(f.fileno())
         rec = {"line": torn_line, "bytes": len(tail), "sha256": digest,
                "side_file": os.path.basename(side),
                "complete_entries": sum(1 for r in prefix.split(b"\n") if r.strip())}
-        cls(path).append("audit.tail_quarantined", rec)
+        # One step (2026-10-13 cold review): the repaired log - every complete
+        # entry byte for byte, then the entry recording this repair - is
+        # written to a new file and swapped in with os.replace. A crash leaves
+        # either the old log or the repaired one, never a cut log without the
+        # record of why it was cut.
+        body = {**rec, "ts": time.time(), "kind": "audit.tail_quarantined"}
+        entry = json.dumps({**body, "prev_hash": prev,
+                            "entry_hash": cls._entry_hash(body, prev)})
+        nl = b"\r\n" if prefix.endswith(b"\r\n") else b"\n"
+        tmp = f"{path}.repair-{stamp}-{digest[:12]}"
+        try:
+            with open(tmp, "wb") as f:
+                f.write(prefix + entry.encode("utf-8") + nl)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
+        _fsync_dir(os.path.dirname(os.path.abspath(path)))
         return rec
 
     RESERVED = ("ts", "kind", "prev_hash", "entry_hash")  # framing fields the log owns, never the caller
@@ -295,6 +370,8 @@ class AuditLog:
         # Hub.escalate) could forge or erase an event kind - the audit log is
         # the single source of truth, so its framing is not caller-writable.
         with self._lock:
+            if self._file_size() != self._size:
+                self._resync()
             body = {**record, "ts": time.time(), "kind": kind}
             for k in ("prev_hash", "entry_hash"):
                 body.pop(k, None)
@@ -306,6 +383,7 @@ class AuditLog:
                 f.write(line + "\n")
                 f.flush()
                 os.fsync(f.fileno())
+                self._size = os.fstat(f.fileno()).st_size
             self._needs_newline = False
             self._prev = eh
 

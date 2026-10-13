@@ -148,7 +148,7 @@ def test_every_append_reaches_the_disk_before_it_returns(tmp_path, monkeypatch):
     assert sizes == [os.path.getsize(p)]         # flushed, then synced, the whole line
 
 
-def test_a_repair_syncs_the_side_file_and_the_cut_before_recording(tmp_path, monkeypatch):
+def test_a_repair_syncs_the_side_file_and_the_repaired_log_before_swapping(tmp_path, monkeypatch):
     p = str(tmp_path / "a.jsonl")
     log = AuditLog(p)
     for n in range(2):
@@ -163,8 +163,10 @@ def test_a_repair_syncs_the_side_file_and_the_cut_before_recording(tmp_path, mon
         return real(fd)
     monkeypatch.setattr(core.os, "fsync", fsync)
     AuditLog.repair_torn_tail(p)
-    # side file (6 bytes, flushed), the cut log, then the repair's own entry
-    assert seen[:2] == [6, complete] and len(seen) == 3
+    # the side file (6 bytes, flushed), then the whole repaired log before it
+    # is swapped in, then (not on Windows) the folder, so the swap is durable
+    assert seen[0] == 6 and seen[1] == os.path.getsize(p) > complete
+    assert len(seen) == (2 if os.name == "nt" else 3)
 
 
 def test_repair_of_a_missing_file_is_refused(tmp_path):

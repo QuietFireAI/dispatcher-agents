@@ -68,7 +68,17 @@ def main(argv=None) -> int:
     ap.add_argument("--taints-expected", type=int, default=0)
     ap.add_argument("--selfcheck-bait-expected", type=int, default=0)
     a = ap.parse_args(argv)
-    events = [json.loads(l) for l in open(a.audit_log, encoding="utf-8") if l.strip()]
+    # the chain first (2026-10-13 cold review: a damaged log crashed this
+    # gate with a raw JSONDecodeError, and a log with an edited line passed)
+    from dispatcher.core import AuditLog
+    chain = AuditLog.check_file(a.audit_log)
+    if not chain["ok"]:
+        print(f"FAIL audit chain broken at line {chain['break_at']}: {chain['reason']}"
+              + (" (a write cut off at the end)" if chain.get("torn_tail") else ""))
+        return 1
+    reader = AuditLog.__new__(AuditLog)
+    reader.path = a.audit_log
+    events = reader.read()
     v = gate(events, a.taints_expected, a.selfcheck_bait_expected)
     k = compute_kpis(events)
     print("delta-class (recorded, not thresholded):",

@@ -33,8 +33,17 @@ mutant*) marks behaviour no test holds.
 | 4. The last 7 | working tree, 288 tests | 7 | 3 | 4 |
 | 5. Whole sweep again, packaged tool | this commit, 288 tests | 808 | 804 | 4 - the 4 below, 0 timeouts |
 
-Run 5 is the confirmation: the full sweep from scratch with
-`tools/mutation_sweep.py` on the code and tests of this commit.
+Run 5 confirmed commit ccbfb21. A cold review by a separate agent then
+found defects in the 1.1/1.2 code (below); fixing them added code, so the
+sweep was run again on the fixed tree:
+
+| Run | Code / tests | Mutants | Killed | Survived |
+|---|---|---|---|---|
+| 6. After the review fixes | working tree, 306 tests | 860 | 845 + 1 timeout (an infinite-loop mutant: caught) | 14: the 4 below and 10 in the new code |
+| 7. Those 14 again | working tree, 314 tests | 14 | 11 | 3 - the 3 equivalents still in the code |
+| 8. Whole sweep, final | this commit, 314 tests | 859 | 855 + 1 timeout (the same infinite-loop mutant: caught) | 3 - the 3 equivalents |
+
+Run 8 is the confirmation for this commit.
 
 ## What the survivors showed
 
@@ -68,15 +77,17 @@ New tests: `tests/test_sweep_core_hub_2026_10_13.py`,
    read. Removed. Mutant 218 changed only that variable; it no longer
    exists.
 
-## The 4 equivalent mutants
+## The equivalent mutants
 
-Each changes no behaviour. Evidence was run, not assumed.
+Each changes no behaviour. Evidence was run, not assumed. The third row's
+code no longer exists: the repair now writes a new file and swaps it in
+instead of truncating, so 3 remain.
 
 | Mutant | Why nothing changes | Evidence |
 |---|---|---|
 | `attestation.py:26` read chunk 65536 -> 65537 | A streamed SHA-256 does not depend on the chunk size | 300,000 random bytes hashed with both chunk sizes and in one call: identical |
 | `core.py:125` `to in SPECIAL and to in r` -> `to not in SPECIAL and to in r` | The whole clause implies `to in r`, which is already the first test on that line, so the clause can never change the answer | Exhaustive: all 32 receiver sets over {02, human, external, queue, any} x 6 destinations give the same result with the clause, with the mutant, and with no clause at all |
-| `core.py:277` `f.flush()` -> `pass` after `truncate` | Nothing is written through that handle; truncate goes straight to the file | Size on disk read right after `truncate(3)`, before any flush: 3 |
+| (removed with the truncate) `core.py:277` `f.flush()` -> `pass` after `truncate` | Nothing is written through that handle; truncate goes straight to the file | Size on disk read right after `truncate(3)`, before any flush: 3 |
 | `hub.py:64` `super().__init__(reason)` -> `pass` in `Reject` | Python's exception constructor stores the arguments before `__init__` runs, so `args` and `str()` are the same | `Reject`-shaped class with and without the call: same `args` and `str` |
 
 ## Redundant clauses found on the way (no behaviour change, reported)
@@ -96,6 +107,20 @@ runs with `-x` while the other job was busy, and 16 unmutated runs of both
 copies side by side all passed. The runner then kept only the summary line,
 not the failing test's name, so the test is not known. Counted as survived.
 The runner now records failing test names. No failure has recurred.
+
+## What the cold review found that the sweep could not
+
+Mutation testing only asks whether the tests notice a change to code that
+exists. The review found behaviour that was missing or wrong under every
+test: a running desk kept writing to a log damaged under it; a later page
+on the same queue covered an earlier failed one in the KPI and the report;
+the report gave a transport time to a notifier that reported nothing; an
+odd notifier answer raised out of the hub; a decision alert in
+listing-assistants called the notifier around the hub; two writers could
+fork the chain. All fixed with tests on 2026-10-13. One test it prompted me
+to recheck was passing for the wrong reason (its "cut back" case emptied
+the file); fixed. Not fixed: two processes appending in the very same
+instant - only an operating-system file lock stops that.
 
 ## What this does and does not show
 

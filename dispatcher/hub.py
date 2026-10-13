@@ -58,6 +58,14 @@ def is_authority(intent: str) -> bool:
     return intent.endswith(".authority") or intent in AUTHORITY_INTENTS
 
 
+def _plain(v):
+    """A notifier's value as the record can hold it: str, number, bool or
+    None as is, anything else as its repr, cut to 300 characters."""
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    return repr(v)[:300]
+
+
 class Reject(Exception):
     def __init__(self, reason: str):
         self.reason = reason
@@ -381,7 +389,17 @@ class Hub:
             self.queues.setdefault(queue_name, []).append(record)
             self._notify(queue_name, record)
 
-    def _notify(self, queue: str, record: dict) -> None:
+    def notify(self, queue: str, record: dict) -> str:
+        """Tell a person about something without putting it on a queue (for
+        example an alert that a decision is waiting), with the outcome
+        recorded exactly as for a queue landing. Returns "notified",
+        "not reported", "notify_failed" or "no notifier" (2026-10-13 cold
+        review: a caller that invoked human_notifier directly left no
+        outcome on the record)."""
+        with self._lock:
+            return self._notify(queue, record)
+
+    def _notify(self, queue: str, record: dict) -> str:
         """Calls the human notifier and records what actually happened
         (repair plan 1.1, 2026-10-13). The notifier's return value decides:
           - a dict whose "status" is in NOTIFY_DELIVERED -> human.notified
@@ -395,27 +413,32 @@ class Hub:
         transport KPI (kpi.py) reports confirmed, unreported and failed
         notifications separately."""
         if self.human_notifier is None:
-            return
+            return "no notifier"
         try:
             res = self.human_notifier(queue, record)
         except Exception as e:  # recorded, never raised past the hub
             self.audit.append("human.notify_failed",
                               {**record, "queue": queue, "error": repr(e)[:300]})
-            return
+            return "notify_failed"
         if not isinstance(res, dict):
             self.audit.append("human.notified",
                               {**record, "queue": queue, "transport": "not reported"})
-            return
+            return "not reported"
         status = res.get("status")
-        if status in NOTIFY_DELIVERED:
+        # only a plain string status can claim delivery; anything else a
+        # notifier returns is reported as it is, never raised past the hub
+        # (2026-10-13 cold review: a list status or an object in http_status
+        # raised out of escalate after escalation.raised was written)
+        if isinstance(status, str) and status in NOTIFY_DELIVERED:
             self.audit.append("human.notified",
                               {**record, "queue": queue, "transport_status": status})
-            return
-        failed = {**record, "queue": queue, "notifier_status": status}
+            return "notified"
+        failed = {**record, "queue": queue, "notifier_status": _plain(status)}
         for k in ("http_status", "channel", "error"):
             if k in res:
-                failed[f"notifier_{k}"] = str(res[k])[:300] if k == "error" else res[k]
+                failed[f"notifier_{k}"] = str(res[k])[:300] if k == "error" else _plain(res[k])
         self.audit.append("human.notify_failed", failed)
+        return "notify_failed"
 
     def resume_loop_suspension(self, client_context_id: str, intent: str) -> dict:
         """Real gap, found 2026-07-17: once a (context, intent) pair

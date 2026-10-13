@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import datetime
 
-from .kpi import compute_kpis
+from .kpi import compute_kpis, pair_escalations
 
 
 def _iso(ts: float) -> str:
@@ -91,24 +91,26 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
         lines.append("- none on log")
 
     lines += ["", "## escalations"]
-    notif = {e.get("queue"): e["ts"] for e in run_events
-             if e["kind"] == "human.notified"}
-    failed = {e.get("queue"): e for e in run_events
-              if e["kind"] == "human.notify_failed"}
+    # each escalation's own outcome (kpi.pair_escalations), paired over the
+    # whole log so another escalation's notification never stands in
+    outcome = {id(r): o for r, o in pair_escalations(events)}
     if esc:
         for e in esc:
             q = e.get("queue")
-            if q in notif and notif[q] >= e["ts"]:
-                lines.append(f"- {q}: transport {notif[q]-e['ts']:.4f}s; "
-                             f"human response time: NOT INSTRUMENTED")
-            elif q in failed and failed[q]["ts"] >= e["ts"]:
-                f = failed[q]
-                why = f.get("notifier_status") or f.get("error") or "unknown"
-                lines.append(f"- {q}: raised, NOTIFICATION FAILED ({why}) - "
-                             f"no person was reached")
-            else:
+            o = outcome.get(id(e))
+            if o is None:
                 lines.append(f"- {q}: raised, NO human.notified on log - "
                              f"transport unproven")
+            elif o["kind"] == "human.notify_failed":
+                why = o.get("notifier_status") or o.get("error") or "unknown"
+                lines.append(f"- {q}: raised, NOTIFICATION FAILED ({why}) - "
+                             f"no person was reached")
+            elif o.get("transport") == "not reported":
+                lines.append(f"- {q}: raised, the notifier reported nothing - "
+                             f"delivery unconfirmed, no transport time")
+            else:
+                lines.append(f"- {q}: transport {o['ts'] - e['ts']:.4f}s; "
+                             f"human response time: NOT INSTRUMENTED")
     else:
         lines.append("- none")
 

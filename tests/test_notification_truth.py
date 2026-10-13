@@ -141,3 +141,87 @@ def test_the_after_action_report_says_the_notification_failed(tmp_path):
     assert "NOTIFICATION FAILED (failed) - no person was reached" in report
     assert "transport" not in report.split("## escalations")[1].split("##")[0].replace(
         "NOTIFICATION FAILED", "")
+
+
+# ------------------------------------------- found by the 2026-10-13 cold review
+def test_a_later_delivery_on_the_same_queue_does_not_cover_an_earlier_failure(tmp_path):
+    outcomes = iter([{"status": "failed", "http_status": 401}, {"status": "sent"}])
+    hub = hub_with(tmp_path, lambda q, r: next(outcomes))
+    hub.escalate("escalation.hot_lead", {"client_context_id": "A"})
+    hub.escalate("escalation.hot_lead", {"client_context_id": "B"})
+    k = compute_kpis(hub.audit.read())["escalation_transport_time"]
+    assert (k["n"], k["unnotified"], k["confirmed"], k["notify_failed"]) == (1, 1, 1, 1)
+    report = generate_report(hub.audit.read(), "P11", "r", "A", steps=[])
+    esc = report.split("## escalations")[1].split("##")[0].strip().splitlines()
+    assert esc[0] == "- escalation.hot_lead: raised, NOTIFICATION FAILED (failed) - no person was reached"
+    assert esc[1].startswith("- escalation.hot_lead: transport ")
+
+
+def test_an_escalation_with_no_outcome_is_not_covered_by_the_next_ones(tmp_path):
+    hub = hub_with(tmp_path, None)                 # nobody to notify
+    hub.escalate("escalation.hot_lead", {"client_context_id": "A"})
+    hub.human_notifier = lambda q, r: {"status": "sent"}
+    hub.escalate("escalation.hot_lead", {"client_context_id": "B"})
+    k = compute_kpis(hub.audit.read())["escalation_transport_time"]
+    assert (k["n"], k["unnotified"]) == (1, 1)
+
+
+def test_the_report_does_not_give_a_transport_time_to_a_notifier_that_reported_nothing(tmp_path):
+    hub = hub_with(tmp_path, lambda q, r: None)
+    hub.escalate("escalation.hot_lead", {"client_context_id": "C"})
+    report = generate_report(hub.audit.read(), "P11", "r", "C", steps=[])
+    assert ("- escalation.hot_lead: raised, the notifier reported nothing - delivery "
+            "unconfirmed, no transport time") in report
+    assert "transport 0" not in report.split("## escalations")[1].split("##")[0]
+
+
+@pytest.mark.parametrize("res,status", [({"status": ["sent"]}, "['sent']"),
+                                        ({"status": "SENT"}, "SENT"),
+                                        ({"status": "failed", "http_status": object()}, "failed")])
+def test_an_odd_notifier_answer_is_recorded_never_raised(tmp_path, res, status):
+    hub = hub_with(tmp_path, lambda q, r: res)
+    assert hub.escalate("escalation.hot_lead", {"client_context_id": "D"})["status"] == "escalated"
+    f = last(hub, "human.notify_failed")
+    assert f["notifier_status"] == status and "human.notified" not in kinds(hub)
+    if "http_status" in res:
+        assert f["notifier_http_status"].startswith("<object object at ")
+
+
+@pytest.mark.parametrize("notifier,outcome,kind", [
+    (None, "no notifier", None),
+    (lambda q, r: {"status": "sent"}, "notified", "human.notified"),
+    (lambda q, r: None, "not reported", "human.notified"),
+    (lambda q, r: {"status": "failed", "http_status": 500}, "notify_failed", "human.notify_failed")])
+def test_notify_without_a_queue_records_and_returns_the_outcome(tmp_path, notifier, outcome, kind):
+    hub = hub_with(tmp_path, notifier)
+    queues = {q: list(v) for q, v in hub.queues.items()}
+    assert hub.notify("decision_required", {"client_context_id": "E"}) == outcome
+    assert {q: list(v) for q, v in hub.queues.items()} == queues     # nothing queued
+    k = [e for e in kinds(hub) if e.startswith("human.")]
+    assert k == ([kind] if kind else [])
+    if kind:
+        assert last(hub, kind)["queue"] == "decision_required"
+
+
+def test_notify_returns_failed_when_the_notifier_raises(tmp_path):
+    def boom(q, r):
+        raise RuntimeError("down")
+    hub = hub_with(tmp_path, boom)
+    assert hub.notify("decision_required", {"client_context_id": "F"}) == "notify_failed"
+    assert last(hub, "human.notify_failed")["error"] == "RuntimeError('down')"
+
+
+def test_an_odd_value_is_kept_to_300_characters(tmp_path):
+    class Long:
+        def __repr__(self):
+            return "L" * 900
+    hub = hub_with(tmp_path, lambda q, r: {"status": "failed", "channel": Long()})
+    hub.escalate("escalation.hot_lead", {"client_context_id": "G"})
+    assert last(hub, "human.notify_failed")["notifier_channel"] == "L" * 300
+
+
+def test_an_escalation_nobody_was_notified_about_has_no_transport_kpi(tmp_path):
+    hub = hub_with(tmp_path, None)
+    hub.escalate("escalation.hot_lead", {"client_context_id": "H"})
+    k = compute_kpis(hub.audit.read())["escalation_transport_time"]
+    assert k["computable"] is False

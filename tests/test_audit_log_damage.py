@@ -115,24 +115,99 @@ def test_repair_moves_the_partial_line_aside_and_records_it(tmp_path):
 
 
 @pytest.mark.parametrize("crlf", [False, True])
-def test_a_repair_interrupted_before_it_records_itself_leaves_exactly_the_complete_entries(tmp_path, monkeypatch, crlf):
-    # The process can die between the cut and the audit.tail_quarantined entry.
-    # What is left on disk must then be the complete entries byte for byte -
-    # a clean, newline-terminated log, not one cut a byte short.
+def test_a_repair_that_dies_before_the_swap_leaves_the_log_as_it_was(tmp_path, monkeypatch, crlf):
+    # The repaired log is written to a new file and swapped in with one
+    # os.replace (2026-10-13 cold review: the earlier repair cut the log and
+    # then appended, so a crash between the two left a cut log with no record
+    # of why). Dying before the swap must leave the original untouched, no
+    # temporary file behind, and the repair still possible.
+    from dispatcher import core
     p = three(tmp_path)
     data = raw(p)
     if crlf:
         data = data.replace(b"\n", b"\r\n")
     open(p, "wb").write(data + b'{"half')
 
-    def died(self, *a, **k):
+    def died(a, b):
         raise RuntimeError("process died")
-    monkeypatch.setattr(AuditLog, "append", died)
+    monkeypatch.setattr(core.os, "replace", died)
     with pytest.raises(RuntimeError):
         AuditLog.repair_torn_tail(p)
-    assert raw(p) == data
+    assert raw(p) == data + b'{"half'
+    assert not [f for f in os.listdir(str(tmp_path)) if ".repair-" in f]
     monkeypatch.undo()
-    assert AuditLog.check_file(p) == {"ok": True, "entries": 3, "break_at": None}
+    rec = AuditLog.repair_torn_tail(p)                    # runs again, new side file name
+    assert raw(p).startswith(data) and AuditLog.check_file(p)["ok"]
+    assert len([f for f in os.listdir(str(tmp_path)) if ".torn-" in f]) == 2
+    assert rec["complete_entries"] == 3
+
+
+# ------------------------------------------- the file changed under a writer
+# Found by the 2026-10-13 cold review: AuditLog checked the file only when it
+# was opened, so a running desk kept appending to a log damaged under it,
+# and two writers on one file forked the chain.
+def test_a_writer_refuses_to_append_after_the_file_was_damaged_under_it(tmp_path):
+    p = three(tmp_path)
+    log = AuditLog(p)
+    lines = raw(p).split(b"\n")
+    lines[1] = b'{"garbage'
+    open(p, "wb").write(b"\n".join(lines))
+    before = raw(p)
+    with pytest.raises(AuditLogDamaged) as ei:
+        log.append("y", {"after": "damage"})
+    assert ei.value.line == 2 and "changed since this process last wrote" in str(ei.value)
+    assert raw(p) == before
+
+
+def test_a_writer_does_not_write_after_another_writers_cut_off_line(tmp_path):
+    p = three(tmp_path)
+    a = AuditLog(p)
+    open(p, "ab").write(b'{"half')                      # another writer died mid-line
+    before = raw(p)
+    with pytest.raises(AuditLogDamaged) as ei:
+        a.append("y", {})
+    assert ei.value.torn_tail is True and raw(p) == before
+    AuditLog.repair_torn_tail(p)                         # still repairable
+    assert AuditLog.check_file(p)["ok"]
+
+
+def test_two_writers_on_one_file_continue_one_chain(tmp_path):
+    p = three(tmp_path)
+    a, b = AuditLog(p), AuditLog(p)
+    a.append("from-a", {})
+    b.append("from-b", {})                              # b sees a's entry and follows it
+    a.append("from-a", {})
+    assert AuditLog.check_file(p) == {"ok": True, "entries": 6, "break_at": None}
+
+
+def test_a_writer_open_during_a_repair_follows_the_repaired_chain(tmp_path):
+    p = three(tmp_path)
+    w = AuditLog(p)
+    open(p, "ab").write(b'{"half')
+    AuditLog.repair_torn_tail(p)
+    w.append("after-repair", {})
+    assert AuditLog.check_file(p)["ok"]
+    assert [e["kind"] for e in AuditLog(p).read()][-2:] == ["audit.tail_quarantined", "after-repair"]
+
+
+@pytest.mark.parametrize("how", ["deleted", "cut back", "replaced"])
+def test_a_writer_whose_entries_are_gone_refuses(tmp_path, how):
+    p = three(tmp_path)
+    w = AuditLog(p)
+    if how == "deleted":
+        os.remove(p)
+    elif how == "cut back":
+        first = raw(p).split(b"\n")[0] + b"\n"           # read before opening for write
+        open(p, "wb").write(first)
+        assert AuditLog.check_file(p) == {"ok": True, "entries": 1, "break_at": None}
+    else:
+        os.remove(p)
+        other = AuditLog(p)
+        other.append("x", {"n": "new history"})
+    before = raw(p) if os.path.exists(p) else None
+    with pytest.raises(AuditLogDamaged, match="no longer in the file"):
+        w.append("y", {})
+    assert (raw(p) if os.path.exists(p) else None) == before
 
 
 def test_repair_refuses_when_the_chain_is_broken_before_the_cut_and_changes_nothing(tmp_path):
@@ -220,3 +295,95 @@ def test_the_cli_checks_repairs_and_refuses(tmp_path):
     assert r.returncode == 2 and json.loads(r.stdout)["repaired"] is False
     r = cli(str(tmp_path / "missing.jsonl"))
     assert r.returncode == 2
+
+
+# --------------------------------------------------------------- the KPI gate
+def gate(*args):
+    return subprocess.run([sys.executable, os.path.join(ROOT, "tools", "kpi_gate.py"), *args],
+                          capture_output=True, text=True)
+
+
+def test_the_kpi_gate_fails_a_damaged_or_edited_log_by_name(tmp_path):
+    p = three(tmp_path)
+    r = gate(p)
+    assert r.returncode == 0 and "KPI GATE PASS" in r.stdout
+    open(p, "ab").write(b'{"half')
+    r = gate(p)
+    assert r.returncode == 1 and "Traceback" not in r.stderr
+    assert "FAIL audit chain broken at line 4: not a readable entry (a write cut off at the end)" in r.stdout
+    q = three(tmp_path, "b.jsonl")
+    lines = raw(q).split(b"\n")
+    lines[0] = lines[0].replace(b'"n": 0', b'"n": 5')
+    open(q, "wb").write(b"\n".join(lines))
+    r = gate(q)
+    assert r.returncode == 1 and "FAIL audit chain broken at line 1: does not link" in r.stdout
+
+
+# --------------------------------- details the 2026-10-13 re-sweep asked about
+def test_a_second_repair_in_the_same_second_gets_its_own_side_file(tmp_path, monkeypatch):
+    from dispatcher import core
+    monkeypatch.setattr(core.time, "strftime", lambda *a: "20261013T000000Z")
+    p = three(tmp_path)
+    open(p, "ab").write(b'{"half')
+    first = AuditLog.repair_torn_tail(p)
+    open(p, "ab").write(b'{"half')                       # the same bytes, cut again
+    second = AuditLog.repair_torn_tail(p)
+    sha12 = first["sha256"][:12]
+    assert first["side_file"] == f"a.jsonl.torn-20261013T000000Z-{sha12}"
+    assert second["side_file"] == f"a.jsonl.torn-20261013T000000Z-{sha12}-2"
+
+
+def test_the_repaired_log_keeps_the_files_own_line_endings(tmp_path):
+    p = three(tmp_path)
+    open(p, "ab").write(b'{"half')
+    AuditLog.repair_torn_tail(p)
+    assert b"\r" not in raw(p)
+    q = three(tmp_path, "b.jsonl")
+    data = raw(q)                                        # read before opening for write
+    open(q, "wb").write(data.replace(b"\n", b"\r\n") + b'{"half')
+    AuditLog.repair_torn_tail(q)
+    assert raw(q).endswith(b"}\r\n") and raw(q).count(b"\r\n") == 4
+
+
+def test_the_repair_swaps_in_a_temporary_file_named_for_the_cut(tmp_path, monkeypatch):
+    from dispatcher import core
+    p = three(tmp_path)
+    open(p, "ab").write(b'{"half')
+    seen = []
+    real = os.replace
+    monkeypatch.setattr(core.os, "replace", lambda a, b: (seen.append((a, b)), real(a, b)))
+    rec = AuditLog.repair_torn_tail(p)
+    stamp = rec["side_file"].split(".torn-")[1].split("-")[0]
+    assert seen == [(f"{p}.repair-{stamp}-{rec['sha256'][:12]}", p)]
+
+
+def test_the_repair_closes_every_file_handle_it_opens(tmp_path, monkeypatch):
+    from dispatcher import core
+    p = three(tmp_path)
+    open(p, "ab").write(b'{"half')
+    opened, closed = [], []
+    real_open, real_close = os.open, os.close
+
+    def track_open(*a, **k):
+        fd = real_open(*a, **k)
+        opened.append(fd)
+        return fd
+
+    def track_close(fd):
+        closed.append(fd)
+        return real_close(fd)
+    monkeypatch.setattr(core.os, "open", track_open)
+    monkeypatch.setattr(core.os, "close", track_close)
+    AuditLog.repair_torn_tail(p)
+    assert sorted(opened) == sorted(closed)
+    assert len(opened) == (0 if os.name == "nt" else 1)   # the folder, to sync the swap
+
+
+def test_a_writer_whose_entries_are_gone_is_not_told_it_was_a_cut_off_write(tmp_path):
+    p = three(tmp_path)
+    w = AuditLog(p)
+    os.remove(p)
+    with pytest.raises(AuditLogDamaged) as ei:
+        w.append("y", {})
+    assert ei.value.torn_tail is False and ei.value.line is None
+    assert "damaged (no single line)" in str(ei.value)
