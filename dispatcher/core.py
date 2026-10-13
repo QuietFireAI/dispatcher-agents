@@ -250,7 +250,7 @@ class AuditLog:
             raise ValueError(f"{path}: the last line is a complete entry that only "
                              f"lacks its newline - nothing to repair; the log opens as is")
         prefix = data[:cut]
-        prev, n = cls.GENESIS, 0
+        prev = cls.GENESIS
         for i, raw in enumerate(prefix.split(b"\n"), 1):
             if not raw.strip():
                 continue
@@ -263,7 +263,7 @@ class AuditLog:
                 raise ValueError(f"{path}: the chain breaks at line {i}, before the "
                                  f"cut-off line - this is not only a cut-off write; "
                                  f"nothing was changed")
-            prev, n = e["entry_hash"], i
+            prev = e["entry_hash"]
         torn_line = prefix.count(b"\n") + 1
         digest = hashlib.sha256(tail).hexdigest()
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())

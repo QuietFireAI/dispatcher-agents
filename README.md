@@ -65,7 +65,7 @@ git clone https://github.com/QuietFireAI/dispatcher-agents
 cd dispatcher-agents
 pip install -e ".[pillars,crypto,dev]"              # routing core is zero-dep; signing needs crypto (Ed25519)
 git clone https://github.com/QuietFireAI/listing-assistants ../listing-assistants
-IDENTITY_DIR=../listing-assistants python3 -m pytest tests/   # 198 tests vs the real 52-route track
+IDENTITY_DIR=../listing-assistants python3 -m pytest tests/   # 288 tests vs the real 52-route track
 IDENTITY_DIR=../listing-assistants python3 demo/run_p11_demo.py   # real spokes chain 11 envelopes from 2 signals
 
 # Identity-gated tests target the repo bundled at IDENTITY_DIR (default: a fixture track); point IDENTITY_DIR at listing-assistants for the real 52-route run.
