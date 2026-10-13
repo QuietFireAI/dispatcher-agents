@@ -12,7 +12,10 @@ from dispatcher.loader import load_identity
 
 FIX = os.path.join(os.path.dirname(__file__), "routes_fixture.json")
 PKG = os.path.join(os.path.dirname(__file__), "..", "dispatcher")
-LISTING = os.environ.get("IDENTITY_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "listing-assistants"))  # real identity when present as a sibling clone; identity-gated tests skip cleanly otherwise
+# Absolute from the start (2026-10-13): the P11 test changes directory before
+# the demo reads IDENTITY_DIR, so the README's relative form
+# (IDENTITY_DIR=../listing-assistants) used to fail that one test.
+LISTING = os.path.abspath(os.environ.get("IDENTITY_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "listing-assistants")))  # real identity when present as a sibling clone; identity-gated tests skip cleanly otherwise
 
 
 def make_hub(tmp_path, verifier=None):
@@ -226,6 +229,7 @@ def test_agent_dir_without_skill_is_violation_not_skip(tmp_path):
 def test_p11_demo_end_to_end(tmp_path, monkeypatch):
     if os.path.isdir(LISTING) and load_identity(LISTING).vertical != "real-estate-listing-agent":
         pytest.skip("P11 demo is listing-pinned; generic contract test covers other identities")
+    monkeypatch.setenv("IDENTITY_DIR", LISTING)    # absolute, before the chdir
     monkeypatch.chdir(tmp_path)
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "demo"))
     import run_p11_demo
