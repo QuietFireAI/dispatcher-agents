@@ -1,4 +1,4 @@
-# Financial Capability — status, controls, and how to engage it
+# Financial Capability - status, controls, and how to engage it
 
 This is the document a held message points you to. If a DispatcherAgent stopped
 and told you it could not send financial or position-bearing content, it linked
@@ -6,7 +6,7 @@ here. Nothing broke. The system did exactly what it is built to do.
 
 This document is written to be read by a prospective operator and by that
 operator's security or compliance reviewer. It states what the system cannot
-do, why, and where the real risks are — including the ones a reviewer would
+do, why, and where the real risks are - including the ones a reviewer would
 otherwise have to find on their own.
 
 ---
@@ -14,7 +14,7 @@ otherwise have to find on their own.
 ## The one-line version
 
 A DispatcherAgent **cannot execute a financial transaction, and cannot reveal a
-financial position, without a deliberate human authorization** — and financial
+financial position, without a deliberate human authorization** - and financial
 *execution* additionally requires a **different, signed software build**. The
 default build ships with the execution capability absent, not merely disabled.
 
@@ -25,14 +25,14 @@ default build ships with the execution capability absent, not merely disabled.
 Financial action is guarded by two independent locks, in series, both held by
 humans. Neither the running system nor any agent can open either one alone.
 
-**Lock 1 — the build.** The capability to execute a financial transaction is not
+**Lock 1 - the build.** The capability to execute a financial transaction is not
 present in the default artifact. There is no payment SDK, no transfer handler,
 no dormant code path waiting to be switched on. Turning it on is not a
-configuration change or a permission grant — it requires installing a
+configuration change or a permission grant - it requires installing a
 different, signed version of the software, deliberately, by a person. Nothing
 the running system can do can create a capability the build does not contain.
 
-**Lock 2 — the key.** Even in a build that carries the capability, each action
+**Lock 2 - the key.** Even in a build that carries the capability, each action
 requires a specific, authenticated authorization from the human principal, for
 that action, at that time. An agent cannot grant it, infer it, assume it, or
 reuse a prior one.
@@ -55,14 +55,14 @@ serves:
 - what a principal has already agreed to, declined, or considered
 
 Every outbound message is classified by **who is on the far end**: the
-`principal` (the party the identity serves), a `counterparty` (the other side —
+`principal` (the party the identity serves), a `counterparty` (the other side -
 a buyer's agent, a carrier, a payer), or the `public` (an open feed). Messages
 to the principal pass. Messages to a counterparty or the public **hold for human
-authorization** — every time, regardless of how the message is worded. The gate
+authorization** - every time, regardless of how the message is worded. The gate
 keys on the recipient, not on scanning the text for forbidden words, so there is
 no phrasing that slips past it.
 
-A missing or unrecognized recipient class does not pass — it holds. The default
+A missing or unrecognized recipient class does not pass - it holds. The default
 is the guarded state, never the permissive one.
 
 ---
@@ -92,7 +92,7 @@ financial-execution authorization. There is no weaker path.
 
 To turn on financial *execution* (Lock 1), engage support:
 `support/engage-financial-capability`. That is a deliberate, out-of-band process
-involving a signed build — not a setting.
+involving a signed build - not a setting.
 
 ---
 
@@ -101,21 +101,21 @@ involving a signed build — not a setting.
 This section is deliberately honest. The system is strong against the threat it
 was built for and average against the threats it inherits. Both are named here.
 
-**Strong — action from inside the swarm.** A compromised or prompt-injected
+**Strong - action from inside the swarm.** A compromised or prompt-injected
 agent cannot release its own held message or execute a transaction. It holds no
 signing key; the key is held outside the running system. This is the property
 the architecture was designed around, and it holds.
 
-**Strong — hiding a breach.** The audit log is hash-chained. Any edit, deletion,
+**Strong - hiding a breach.** The audit log is hash-chained. Any edit, deletion,
 or reordering fails verification loudly. An unauthorized release cannot be
 retroactively disguised as an authorized one.
 
-**Soft — signing-key hygiene (the main one).** Signatures are Ed25519: the hub
+**Soft - signing-key hygiene (the main one).** Signatures are Ed25519: the hub
 holds only public keys, so a stolen configuration file yields keys that forge
-nothing. The private signing key is what matters — whoever holds it can sign.
+nothing. The private signing key is what matters - whoever holds it can sign.
 The signature covers the envelope's provenance, including the signer stamp, so
 the claimed signer cannot be changed after signing. The signer registry (login +
-MFA) is the second lock — but if an identity ships with the registry unarmed,
+MFA) is the second lock - but if an identity ships with the registry unarmed,
 verification is key-only, and in that state **theft of the private key is full
 compromise.** The system declares an unarmed registry on the audit log rather
 than passing silently, but *declared is not prevented.* Production should keep
@@ -123,24 +123,24 @@ the private key off the hub's machine and run with an armed registry. (A
 shared-secret HMAC tier existed until 2026-10-12; it was removed because any
 verifier holding that secret could also sign.)
 
-**Soft — the release channel is the attack surface.** Once the lock and key
+**Soft - the release channel is the attack surface.** Once the lock and key
 exist, security reduces to how well the signing key and MFA session are
 protected. A phished MFA session or a keylogged signer defeats the gate. No code
 prevents this; it is operational.
 
-**Soft — the build/publish pipeline.** "Execution requires a software update" is
+**Soft - the build/publish pipeline.** "Execution requires a software update" is
 only as strong as the guarantee that no one can push a malicious build. Whoever
 controls the publish pipeline can add the capability. Signed-release attestation
 (sigstore) exists to bound this; a reviewer should confirm the deploy path
 enforces signature verification.
 
-**Soft — supply chain.** Pillar packages install from source repositories. A
+**Soft - supply chain.** Pillar packages install from source repositories. A
 compromised upstream repo runs inside the hub. Pin to commit hashes, not branch
 tips.
 
-**Not solved by this layer — recipient identity.** The disclosure gate verifies
+**Not solved by this layer - recipient identity.** The disclosure gate verifies
 the recipient *class* (counterparty vs principal). It does not verify recipient
-*identity* — that a balance bound for "the patient" reaches the correct patient.
+*identity* - that a balance bound for "the patient" reaches the correct patient.
 That binding is a separate control and is not claimed here.
 
 ---
