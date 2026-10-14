@@ -3,7 +3,8 @@ on: [push, pull_request]
 jobs:
   suite:
     # The repo alone, as a buyer first clones it: no listing identity next
-    # to it, so the 5 identity-pinned tests in tests/test_day3.py skip.
+    # to it, so the 6 identity-pinned tests (5 in tests/test_day3.py, 1 in
+    # tests/test_signed_intents_declared.py) skip.
     # They are run for real, with zero skips allowed, in with-identity below.
     runs-on: ubuntu-latest
     steps:

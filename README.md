@@ -61,9 +61,11 @@ Three things to know about the runtime as it stands:
   gaps, but the hub emits none on its own; a deployment has to call
   `heartbeat()` on a schedule.
 - **Held outbound messages** (the absolute-signal gate) live in the hub's
-  memory in a bare core. The log records each hold's id, intent, audience
-  and hash, not the message; a product that saves hub state across
-  restarts (listing-assistants does) keeps them.
+  memory in a bare core. The hold entry records the envelope id, intent and
+  audience (its hash is of the fixed signal text, the same for every hold).
+  When a notifier is set, the notification entry carries the queued record,
+  payload included; without one, the message is in memory only. A product
+  that saves hub state across restarts (listing-assistants does) keeps them.
 - **Territories** (hub-to-hub handoff) are experimental; their known limits
   are listed in `dispatcher/territory.py` and pinned by tests.
 
@@ -77,7 +79,7 @@ uses part of it. Checked against listing-assistants' code on 2026-10-14:
 | Hub: closed track, signatures, audit log and its lock, disclosure gate, notifications, decline | Runs |
 | before-turn (turn entry) | Runs when the swarm is built (`on_turn_start`) |
 | agent-open-mind taint gate | Runs on every agent's thought trace |
-| pre-response-selfcheck exit gate | Runs unarmed: no reviewer model is configured; it says so on the log |
+| pre-response-selfcheck exit gate | Off: no reviewer model is configured; declared once at boot (`selfcheck.unarmed`) |
 | Signer registry (who signed) | Not armed; the crypto signature is checked, the login binding is off and declared |
 | splitvantage second opinion | Off: no reviewer pair configured; declared at boot |
 | open-mind analysis, KPIs, the core after-action report | Not called (listing writes its own end-of-day report) |
@@ -100,7 +102,7 @@ git clone https://github.com/QuietFireAI/dispatcher-agents
 cd dispatcher-agents
 pip install -e ".[pillars,crypto,dev]"              # routing core is zero-dep; signing needs crypto (Ed25519)
 git clone https://github.com/QuietFireAI/listing-assistants ../listing-assistants
-IDENTITY_DIR=../listing-assistants python3 -m pytest tests/   # 359 tests vs the real 52-route track
+IDENTITY_DIR=../listing-assistants python3 -m pytest tests/   # 366 tests vs the real 52-route track
 IDENTITY_DIR=../listing-assistants python3 demo/run_p11_demo.py   # real spokes chain 11 envelopes from 2 signals
 
 # Identity-gated tests target the repo bundled at IDENTITY_DIR (default: a fixture track); point IDENTITY_DIR at listing-assistants for the real 52-route run.

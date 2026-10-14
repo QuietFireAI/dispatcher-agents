@@ -37,3 +37,27 @@ def test_the_text_is_cut_at_exactly_320_characters():
 def test_not_configured_names_the_channel_only_when_there_is_one():
     assert n._not_configured("whatsapp")["channel"] == "whatsapp"
     assert "channel" not in n._not_configured()
+
+
+def test_empty_and_your_values_count_as_unset(monkeypatch):
+    # 2026-10-14 cold review: an empty SID posted to .../Accounts//Messages.json
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "real-token")
+    for sid in ("", "   ", "your_account_sid", "YOUR_SID", "placeholder_x"):
+        monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", sid)
+        assert n.twilio_configured() is False, sid
+
+
+def test_a_placeholder_destination_sends_nothing(monkeypatch):
+    calls = []
+    monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", "ACreal")
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "real-token")
+    monkeypatch.setattr(n.urllib.request, "urlopen", lambda *a, **k: calls.append(a))
+    sms = n.send_sms_via_twilio("x", to_number="+1 555 555 0100")
+    wa = n.send_whatsapp_via_twilio("x", to_number="whatsapp:+15555550199")
+    for r in (sms, wa):
+        assert r["status"] == "failed" and "is a placeholder (555-01xx)" in r["error"]
+    assert wa["channel"] == "whatsapp" and calls == []
+    assert n.is_fictional_number("+15555550100") and n.is_fictional_number("+1 (555) 555-0199")
+    assert n.is_fictional_number("+12025550100")             # the block is reserved in every area code
+    assert not n.is_fictional_number("+15555550200") and not n.is_fictional_number("+12025550000")
+    assert not n.is_fictional_number("+5555550100")       # not an 11-digit +1 number

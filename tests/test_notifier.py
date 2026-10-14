@@ -47,6 +47,9 @@ def test_placeholder_credentials_send_nothing_and_say_so(monkeypatch):
     tests/test_sweep_modules_2026_10_13.py."""
     import dispatcher.notifier as n
     calls = []
+    # the shipped defaults, whatever TWILIO_* this machine has set
+    monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", "PLACEHOLDER_ACCOUNT_SID")
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "PLACEHOLDER_AUTH_TOKEN")
     monkeypatch.setattr(n.urllib.request, "urlopen", lambda *a, **k: calls.append(a))
     assert n.twilio_configured() is False
     for result in (send_sms_via_twilio("wiring check"), n.send_whatsapp_via_twilio("x")):

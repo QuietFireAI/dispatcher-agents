@@ -117,8 +117,15 @@ class Hub:
             self.audit.append("selfcheck.unarmed",
                               {"scope": "boot", "reason": "no reviewer model "
                                "configured - exit gate off, declared not silent"})
+        if signature_verifier is None:
+            # 2026-10-14 cold review: with no verifier every authority envelope
+            # fails verification and is logged as an integrity violation, so a
+            # missing setting read as tampering. Say so once at boot.
+            self.audit.append("verifier.unarmed",
+                              {"scope": "boot", "reason": "no signature verifier configured - "
+                               "every authority envelope will be refused as unverified"})
         if human_notifier is None:
-            # 2026-10-14: the one unarmed mode that used to be silent - an
+            # 2026-10-14: an unarmed mode that used to be silent - an
             # escalation was raised and nothing said no person could be told.
             self.audit.append("notifier.unarmed",
                               {"scope": "boot", "reason": "no human_notifier "

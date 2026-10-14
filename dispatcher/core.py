@@ -83,11 +83,17 @@ class Routes:
                         for r in data["routes"]]
         # Intents the identity requires a verified human signature on, beyond
         # the core's own (owner decision D2, 2026-10-14). Each must be an
-        # intent on this track: a misspelt name would otherwise leave the real
-        # intent unsigned without anyone noticing.
+        # exact intent that some route carries (a wildcard route such as
+        # `pay.*` carries `pay.release`): a misspelt name would otherwise
+        # leave the real intent unsigned without anyone noticing. A wildcard
+        # name is refused: the signature gate matches exact names, so
+        # declaring `pay.*` would protect nothing (2026-10-14 cold review).
         self.signed_intents = frozenset(data.get("signed_intents", []))
-        on_track = {i for i, _, _ in self.entries}
-        unknown = sorted(self.signed_intents - on_track)
+        wild = sorted(i for i in self.signed_intents if "*" in i)
+        if wild:
+            raise ValueError(f"{path}: signed_intents names {wild}; name each "
+                             f"intent exactly, not with a wildcard")
+        unknown = sorted(i for i in self.signed_intents if not any(True for _ in self.matches(i)))
         if unknown:
             raise ValueError(f"{path}: signed_intents names {unknown}, which "
                              f"{'is' if len(unknown) == 1 else 'are'} not on the track")

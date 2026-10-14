@@ -201,10 +201,32 @@ def _persisted(ctx, *seqs):
 
 def test_a_bare_restart_is_a_restart_and_a_transferred_context_continues(tmp_path):
     # repair plan 2.4 (2026-10-14): both used to be counted as gaps
-    k = compute_kpis(_persisted("A", 1, 2, 3, 1, 2)                   # hub restarted, no state
+    k = compute_kpis(_persisted("A", 1, 2, 3)
+                     + [{"kind": "jev.unarmed_fallback", "ts": 0}]  # the hub boots again
+                     + _persisted("A", 1, 2)                         # bare core: no state kept
                      + [{"kind": "territory.transfer.received", "ts": 0,
                          "contexts": {"T": {"sequence_hwm": 7}}}]
                      + _persisted("T", 8, 9)                        # continues after the mark
                      + _persisted("G", 1, 3)                        # a real gap
                      + _persisted("U", 5))                          # starts mid-way, no transfer
     assert k["sequence_gap_incidents"] == 2 and k["sequence_restarts"] == 1
+
+
+def test_a_return_to_1_without_a_boot_is_a_gap_and_a_transfer_counts_where_it_lands():
+    # 2026-10-14 cold review: the first restart rule hid these
+    boot = [{"kind": "jev.unarmed_fallback", "ts": 0}]
+    k = compute_kpis(_persisted("D", 1, 1))                     # duplicate, no boot between
+    assert (k["sequence_gap_incidents"], k["sequence_restarts"]) == (1, 0)
+    k = compute_kpis(_persisted("R", 1, 2, 3)
+                     + [{"kind": "territory.transfer.released", "ts": 0, "contexts": ["R"]}]
+                     + _persisted("R", 1))                      # still routed after release
+    assert (k["sequence_gap_incidents"], k["sequence_restarts"]) == (1, 0)
+    # out to another hub at 3, back with mark 5: the mark applies where it lands
+    k = compute_kpis(_persisted("T", 1, 2, 3)
+                     + [{"kind": "territory.transfer.received", "ts": 0,
+                         "contexts": {"T": {"sequence_hwm": 5}}}]
+                     + _persisted("T", 6))
+    assert (k["sequence_gap_incidents"], k["sequence_restarts"]) == (0, 0)
+    # a boot between entries of a context that had moved on is still a gap if not 1
+    k = compute_kpis(_persisted("B", 1, 2) + boot + _persisted("B", 5))
+    assert (k["sequence_gap_incidents"], k["sequence_restarts"]) == (1, 0)

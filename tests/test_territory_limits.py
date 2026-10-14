@@ -46,11 +46,26 @@ def test_known_limit_an_old_transfer_received_again_sets_the_sequence_back(tmp_p
 
 
 def test_known_limit_holds_dedupe_and_loop_counts_stay_with_the_sender(tmp_path):
-    a, b, rec, v = moved(tmp_path)
-    receive_transfer(b, rec, v)
+    s = Ed25519Signer()
+    a, b = hub(tmp_path, "a"), hub(tmp_path, "b")
+    a.register("external", lambda e: None)
+    a.send(env())
+    held = Envelope(from_agent="09", to_agent="external", intent="vendor.schedule",
+                    client_context_id="ctx-1", payload={"vendor": "v1"}, provenance={"source": "t"})
+    a.send(held)
+    assert held.envelope_id in a._absolute_holds              # a real hold on the sender
+    rec = build_transfer(a, ["ctx-1"], s)
+    receive_transfer(b, rec, Ed25519Verifier(s.public_key_bytes()))
+    assert held.envelope_id in a._absolute_holds and not b._absolute_holds
     assert a.seen_ids and not b.seen_ids
     assert a.loop_counts and not b.loop_counts
-    assert "_absolute_holds" not in rec and "seen_ids" not in rec and "loop_counts" not in rec
+
+
+def test_known_limit_the_sender_can_still_route_a_released_context(tmp_path):
+    a, b, rec, v = moved(tmp_path)
+    confirm_release(a, ["ctx-1"], receive_transfer(b, rec, v))
+    assert a.send(env())["status"] == "ack"                   # not refused: in two regions
+    assert a.seq["ctx-1"] == 1                                # and its numbering starts over
 
 
 def test_known_limit_the_senders_queue_items_stay_after_release(tmp_path):

@@ -34,9 +34,9 @@ that pillar regressed; stop, report the raw failure. Do not proceed to
 integration on a broken pillar - the set cannot be validated on a bad part.
 
 Then the dispatcher's suite from its clone: `python3 -m pytest tests/ -q`
-EXPECTED: 353 passed, 6 skipped. (The 6 identity-dependent tests activate
+EXPECTED: 360 passed, 6 skipped. (The 6 identity-dependent tests activate
 when IDENTITY_DIR points at a listing-assistants clone, or when one sits at
-the conventional sibling path `../listing-assistants` - then 359 passed, as
+the conventional sibling path `../listing-assistants` - then 366 passed, as
 of 2026-10-14. CI runs both: the clone alone, and with the listing identity
 on Linux 3.10/3.12/3.13 and Windows, where any skip fails the job.)
 
@@ -62,14 +62,18 @@ What each count proves:
 - agentopenmind.tainted 1: probe p2 returned a result with NO thought;
   the pillar gate flagged it at ingestion. The dark trace is planted -
   a baseline with zero taints would mean the gate was never tempted.
-- selfcheck.verdict 4: exit gate reviewed every outbound delivery; the
-  envelope whose payload said "guaranteed" is HELD in clarification -
+- selfcheck.verdict 4: exit gate reviewed every outbound delivery (the
+  reviewer here is a keyword stub: "guaranteed" fails, anything else
+  passes); the envelope whose payload said "guaranteed" is HELD in clarification -
   persisted, never delivered, never acked, flagged line on the log.
 - sleepmark.captured 1: the crew change (signed territory transfer to a
-  second hub) carried the reasoning state; audit-b.jsonl on the receiving
-  hub shows sleepmark.restored.
+  second hub) carried the mark; audit-b.jsonl on the receiving hub logs it
+  as sleepmark.restored (a historical name: the mark is logged, nothing in
+  the receiving hub is restored from it).
 - splitvantage.review 1: the drifted reflection triggered an automatic
-  two-model second opinion (word-boundary counting, the fixed defect).
+  two-model second opinion on the two stub models' canned answers. The
+  diff is the pillar's analyze_diff (word-boundary counts of hedges and
+  length), not its semantic_diff.
 
 Also verify the unarmed contract: boot a hub with NO reviewer models
 (python3 -c or any test) and confirm selfcheck.unarmed and

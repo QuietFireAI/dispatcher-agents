@@ -60,6 +60,22 @@ def test_a_signed_intent_that_is_not_on_the_track_refuses_to_load(tmp_path):
         routes(tmp_path, ["record.chnage"])
 
 
+def test_a_wildcard_route_carries_a_declared_intent_and_a_wildcard_name_is_refused(tmp_path):
+    # 2026-10-14 cold review: `pay.*` declared protected nothing, and
+    # `pay.release` carried by a `pay.*` route was refused as not on the track
+    wild = [{"intent": "pay.*", "senders": ["human"], "receivers": ["05"]}]
+    r = routes(tmp_path, ["pay.release"], extra=wild)
+    assert "pay.release" in r.signed_intents
+    s = Ed25519Signer()
+    hub = Hub(r, AuditLog(str(tmp_path / "w.jsonl")), signature_verifier=s.verifier())
+    hub.register("05", lambda e: None)
+    e = Envelope(from_agent="human", to_agent="05", intent="pay.release", client_context_id="c",
+                 payload={}, provenance={"source": "t"})
+    assert hub.send(e)["status"] == "reject"
+    with pytest.raises(ValueError, match=r"name each intent exactly, not with a wildcard"):
+        routes(tmp_path, ["pay.*"], extra=wild)
+
+
 @pytest.mark.skipif(not os.path.isfile(os.path.join(LISTING, "identity", "routes.json")),
                     reason="listing identity not present (the with-identity CI job runs this)")
 def test_the_listing_identity_declares_its_signed_listing_change(tmp_path):

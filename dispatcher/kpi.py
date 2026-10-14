@@ -30,6 +30,8 @@ from collections import defaultdict
 
 
 NOTIFY_OUTCOMES = ("human.notified", "human.notify_failed")
+# Every Hub writes exactly one of these in __init__, so one marks a hub boot.
+BOOT_KINDS = ("jev.unarmed_fallback", "jev.key_present")
 
 
 def pair_escalations(events: list[dict]) -> list[tuple[dict, dict | None]]:
@@ -94,29 +96,40 @@ def compute_kpis(events: list[dict]) -> dict:
     }
 
     # Sequence-gap incidents: per client context, each persisted sequence must
-    # follow the one before it. A context starts at 1, or - when this hub
-    # received it by territory transfer - right after the high-water mark
-    # the transfer carried. A sequence that starts over at 1 is a restart of
-    # a hub that kept no state (a bare core), counted as a restart, not a gap
-    # (2026-10-14, repair plan 2.4: both used to count as gaps).
-    seqs: dict[str, list[int]] = defaultdict(list)
-    for e in by_kind["envelope.persisted"]:
-        if "client_context_id" in e and e.get("sequence") is not None:
-            seqs[e["client_context_id"]].append(e["sequence"])
-    first_expected: dict[str, int] = {}
-    for e in by_kind["territory.transfer.received"]:
-        for ctx, meta in (e.get("contexts") or {}).items():
-            if isinstance(meta, dict) and isinstance(meta.get("sequence_hwm"), int):
-                first_expected[ctx] = meta["sequence_hwm"] + 1
+    # follow the one before it. The log is walked in order. A context starts
+    # at 1; where this hub receives it by territory transfer, it continues
+    # from the carried high-water mark at that point in the log. A sequence
+    # that goes back to 1 is a restart only when a hub boot sits between it
+    # and the context's previous entry (a bare core keeps no sequence state
+    # across restarts); any other break - a duplicate, a jump, a context
+    # still routed after it was released - is a gap. (2026-10-14: the first
+    # version of this counted every return to 1 as a restart, and applied a
+    # transfer's mark to the start of the context's history; the cold review
+    # showed both hid real gaps.)
     gap_incidents = sequence_restarts = 0
-    for ctx, run in seqs.items():
-        expected = first_expected.get(ctx, 1)
-        for s in run:
-            if s == 1 and expected != 1:
-                sequence_restarts += 1
-            elif s != expected:
-                gap_incidents += 1
-            expected = s + 1
+    expected: dict[str, int] = {}
+    booted_since: dict[str, bool] = {}
+    for e in events:
+        k = e.get("kind")
+        if k in BOOT_KINDS:
+            for c in booted_since:
+                booted_since[c] = True
+        elif k == "territory.transfer.received":
+            for ctx, meta in (e.get("contexts") or {}).items():
+                if isinstance(meta, dict) and isinstance(meta.get("sequence_hwm"), int):
+                    expected[ctx] = meta["sequence_hwm"] + 1
+                    booted_since[ctx] = False
+        elif (k == "envelope.persisted" and "client_context_id" in e
+              and e.get("sequence") is not None):
+            ctx, s = e["client_context_id"], e["sequence"]
+            want = expected.get(ctx, 1)
+            if s != want:
+                if s == 1 and booted_since.get(ctx):
+                    sequence_restarts += 1
+                else:
+                    gap_incidents += 1
+            expected[ctx] = s + 1
+            booted_since[ctx] = False
 
     n_persisted = len(by_kind["envelope.persisted"])
     queue_health = {

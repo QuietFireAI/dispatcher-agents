@@ -36,3 +36,20 @@ def test_the_documented_test_counts_match_the_suite():
     m_full = int(re.search(r"then (\d+) passed, as", text("PILLAR_TESTING_MANUAL.md")).group(1))
     assert readme == full == m_full == total, (readme, full, m_full, total)
     assert alone + skipped == total and (m_alone, m_skipped) == (alone, skipped)
+
+
+def test_the_documented_skip_count_is_what_skips_without_the_identity(tmp_path):
+    # 2026-10-14 cold review: the test above only checked passed + skipped =
+    # collected. Run the files that can skip, with IDENTITY_DIR at a path
+    # that does not exist (no identity), and count what actually skips.
+    here = os.path.join(ROOT, "tests")
+    files = sorted(os.path.join("tests", f) for f in os.listdir(here)
+                   if f.startswith("test_") and f.endswith(".py") and f != "test_doc_counts.py"
+                   and "skip" in open(os.path.join(here, f), encoding="utf-8").read())
+    env = dict(os.environ, IDENTITY_DIR=str(tmp_path / "no-identity-here"))
+    out = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *files],
+                         cwd=ROOT, env=env, capture_output=True, text=True).stdout
+    m = re.search(r"(\d+) skipped", out)
+    documented = int(re.search(r"EXPECTED: \d+ passed, (\d+) skipped\.",
+                               text("PILLAR_TESTING_MANUAL.md")).group(1))
+    assert m and int(m.group(1)) == documented, out[-400:]
