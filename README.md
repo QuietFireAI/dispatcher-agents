@@ -83,11 +83,13 @@ uses part of it. Checked against listing-assistants' code on 2026-10-14:
 | Signer registry (who signed) | Not armed; the crypto signature is checked, the login binding is off and declared |
 | splitvantage second opinion | Off: no reviewer pair configured; declared at boot |
 | open-mind analysis, KPIs, the core after-action report | Not called (listing writes its own end-of-day report) |
-| Boot attestation, identity loader, priority and siding, heartbeat, playbook-run KPIs | Not called |
+| Boot attestation | Runs: its manifest functions check the install against the broker's signed manifest at every console, desk and clock start (since 2026-10-14) |
+| MANNERS re-injection recording | Runs: listing-assistants fires phase gates and the 10-turn backstop (since 2026-10-14) |
+| Identity loader, priority and siding, heartbeat, playbook-run KPIs | Not called |
 | Territories, sleep-marks | Not used |
 
-Boot attestation is the cheapest of these to wire in next (owner decision D5,
-2026-10-14).
+Boot attestation and the MANNERS re-injection triggers were wired into
+listing-assistants on 2026-10-14 (owner decision).
 
 ## Verticals (identity side-loads)
 

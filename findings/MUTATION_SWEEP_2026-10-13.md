@@ -97,8 +97,18 @@ The one was `booted_since[ctx] = False` where a transfer lands: no test
 had a hub boot, then the context arriving by transfer, then a 1. It is
 killed by the added case in
 `test_a_return_to_1_without_a_boot_is_a_gap_and_a_transfer_counts_where_it_lands`.
-Result for the merge: 995 mutants, 983 killed, 1 timeout, 11 survived (the
-2 equivalent, 1 CPU-only and 8 Windows-only lines described below).
+A second review pass then led to small changes in hub.py (a hub.boot line),
+kpi.py (it reads hub.boot) and notifier.py (10-digit numbers, the sending
+number). Those three files were swept again; the other 13 had not changed
+since run 17:
+
+| Run | Code / tests | Mutants | Killed | Survived |
+|---|---|---|---|---|
+| 19. hub.py, kpi.py, notifier.py | 6076305, 368 tests | 381 | 380 | 1: the `Reject` equivalent below |
+
+Result for the merge: run 17 for the 13 unchanged files and run 19 for the
+three changed ones; every survivor is one of the 2 equivalent, 1 CPU-only
+and 8 Windows-only lines described below.
 
 ## What the survivors showed
 
