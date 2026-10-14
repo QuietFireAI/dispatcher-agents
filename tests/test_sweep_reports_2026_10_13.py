@@ -192,3 +192,19 @@ def test_another_runs_escalation_is_not_in_this_report():
     r = generate_report(log, "P11", "run-1", C, STEPS).splitlines()
     assert len(section(r, "escalations")) == 3                    # this run's three only
     assert section(r, "gates")[0] == "- hot-lead escalation gate: TRIGGERED x3 (evidence: escalation.raised on log)"
+
+
+def _persisted(ctx, *seqs):
+    return [{"kind": "envelope.persisted", "ts": 1, "envelope_id": f"{ctx}{i}",
+             "client_context_id": ctx, "sequence": s} for i, s in enumerate(seqs)]
+
+
+def test_a_bare_restart_is_a_restart_and_a_transferred_context_continues(tmp_path):
+    # repair plan 2.4 (2026-10-14): both used to be counted as gaps
+    k = compute_kpis(_persisted("A", 1, 2, 3, 1, 2)                   # hub restarted, no state
+                     + [{"kind": "territory.transfer.received", "ts": 0,
+                         "contexts": {"T": {"sequence_hwm": 7}}}]
+                     + _persisted("T", 8, 9)                        # continues after the mark
+                     + _persisted("G", 1, 3)                        # a real gap
+                     + _persisted("U", 5))                          # starts mid-way, no transfer
+    assert k["sequence_gap_incidents"] == 2 and k["sequence_restarts"] == 1

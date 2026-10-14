@@ -130,7 +130,8 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
               f"- routing latency p50/max: {k['routing_latency']['p50_s']}"
               f" / {k['routing_latency']['max_s']} s",
               f"- escalation transport: {k['escalation_transport_time']}",
-              f"- sequence gaps: {k['sequence_gap_incidents']}, "
+              f"- sequence gaps: {k['sequence_gap_incidents']} "
+              f"(restarts at 1: {k['sequence_restarts']}), "
               f"dedupe hits: {k['dedupe_hits']}, rejects: {k['rejects']}",
               f"- queue health: {k['queue_health']}",
               f"- drift: {k['drift']}",

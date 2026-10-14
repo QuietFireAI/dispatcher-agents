@@ -1,5 +1,16 @@
 """Territories - dispatcher-to-dispatcher handoff (DISPATCHER_CORE §Territories).
 
+EXPERIMENTAL (owner decision D6, 2026-10-14): no product uses territories,
+and these limits stand until a second office does. Each is pinned by a test
+in tests/test_territory_limits.py, so changing one is a deliberate step:
+  - a transfer record carries no nonce or expiry: receiving an old record
+    again sets a context's sequence back to that record's high-water mark;
+  - held disclosure messages (the absolute-signal holds), the dedupe set
+    and the loop counts stay with the sending hub;
+  - confirm_release clears only the sender's sequence counters; its queue
+    items for those contexts stay (so a context's open items can be in
+    both regions after a transfer).
+
 The spec, implemented literally:
 - Transfer record = client-context ownership + sequence high-water mark per
   context + open holds/queue items + the attested resource manifest.

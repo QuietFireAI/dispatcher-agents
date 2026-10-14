@@ -44,7 +44,8 @@ def load_identity(root: str) -> Identity:
             f"identity at {root!r}: routes.json absent - no closed track, "
             f"refusing to load (gate principle)")
     try:
-        routes_doc = json.load(open(routes_path, encoding="utf-8"))
+        with open(routes_path, encoding="utf-8") as f:
+            routes_doc = json.load(f)
         routes = routes_doc["routes"]
         # an explicit check, not assert: python -O strips asserts, and an
         # empty or non-list track would then load (found by the 2026-10-13
@@ -69,7 +70,8 @@ def load_identity(root: str) -> Identity:
     priority: dict[str, int] | None = None
     prio_status = "absent - playbook traffic cannot be scheduled until supplied"
     if prio_path:
-        doc = json.load(open(prio_path, encoding="utf-8"))
+        with open(prio_path, encoding="utf-8") as f:
+            doc = json.load(f)
         classes = doc.get("classes", {})
         bad = {k: v for k, v in classes.items()
                if not isinstance(v, int) or not 1 <= v <= 4}

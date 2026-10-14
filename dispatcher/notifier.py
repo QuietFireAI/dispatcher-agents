@@ -33,28 +33,47 @@ TWILIO_WHATSAPP_TO = os.environ.get("TWILIO_WHATSAPP_TO", f"whatsapp:{DEFAULT_TO
 
 
 def format_notification_text(queue: str, record: dict, max_length: int = 320) -> str:
-    """Builds the actual SMS/WhatsApp body from a queue name + record. Real
-    formatting logic - pulls whatever's actually present (reason/trigger/
-    agent/context), never invents fields that aren't there."""
+    """Builds the SMS/WhatsApp body from a queue name + record: the queue,
+    the agent, the client context id and (when there is one) the wait id -
+    never the record's free text. Since 2026-10-14 (repair plan 2.4) the
+    reason/trigger text is left out: it can carry a client's own words, and
+    a text message leaves the system. listing-assistants' pager does the same."""
     ctx = record.get("client_context_id", "unknown")
     agent = record.get("agent") or record.get("from_agent") or "?"
-    reason = (record.get("reason") or record.get("trigger")
-             or (record.get("payload") or {}).get("reason") or "")
     wait_id = record.get("wait_id", "")
-    
     text = f"[DispatcherAgents] {queue} | agent={agent} ctx={ctx}"
     if wait_id:
         text += f" | wait_id={wait_id}"
-    if reason:
-        text += f" | {reason}"
     return text[:max_length]
+
+
+def twilio_configured() -> bool:
+    """False while TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN still holds its
+    placeholder. Nothing is sent then (2026-10-14: every escalation used to
+    post to Twilio with the placeholders and get a 401)."""
+    return not (TWILIO_ACCOUNT_SID.startswith("PLACEHOLDER")
+                or TWILIO_AUTH_TOKEN.startswith("PLACEHOLDER"))
+
+
+def _not_configured(channel: str | None = None) -> dict:
+    out = {"status": "failed", "is_fallback": True,
+           "error": "Twilio not configured: TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN "
+                    "are placeholders - nothing was sent",
+           "fallback_reason": "not configured; not delivered, the hub records "
+                              "human.notify_failed"}
+    if channel:
+        out["channel"] = channel
+    return out
 
 
 def send_sms_via_twilio(body: str, to_number: str | None = None,
                         timeout: float = 5.0) -> dict:
     """Real Twilio REST API call - POSTs to the actual endpoint. Fails
     with a 401 until real credentials replace the placeholders above;
-    that failure mode is expected and correct, not swallowed."""
+    that failure mode is expected and correct, not swallowed. With the
+    placeholders still in place nothing is posted at all (2026-10-14)."""
+    if not twilio_configured():
+        return _not_configured()
     to_number = to_number or TWILIO_TO_NUMBER
     url = (f"https://api.twilio.com/2010-04-01/Accounts/"
           f"{TWILIO_ACCOUNT_SID}/Messages.json")
@@ -86,7 +105,10 @@ def send_whatsapp_via_twilio(body: str, to_number: str | None = None,
                              from_number: str | None = None,
                              timeout: float = 5.0) -> dict:
     """Real Twilio WhatsApp REST API call. Ensures numbers carry the
-    'whatsapp:' channel prefix required by Twilio."""
+    'whatsapp:' channel prefix required by Twilio. Nothing is posted while
+    the credentials are placeholders (2026-10-14)."""
+    if not twilio_configured():
+        return _not_configured("whatsapp")
     raw_to = to_number or TWILIO_WHATSAPP_TO
     raw_from = from_number or TWILIO_WHATSAPP_FROM
 

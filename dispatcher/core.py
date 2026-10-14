@@ -76,7 +76,8 @@ class Routes:
     """The closed track. Loaded from an identity side-load (routes.json)."""
 
     def __init__(self, path: str):
-        data = json.load(open(path, encoding="utf-8"))
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
         self.version = data.get("version", "?")
         self.entries = [(r["intent"], set(r["senders"]), set(r["receivers"]))
                         for r in data["routes"]]

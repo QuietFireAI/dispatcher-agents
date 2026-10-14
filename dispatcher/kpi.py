@@ -93,16 +93,30 @@ def compute_kpis(events: list[dict]) -> dict:
         "p50_s": latencies[len(latencies) // 2] if latencies else None,
     }
 
-    # Sequence-gap incidents: per client context, persisted sequences must be
-    # a gapless 1..n run in arrival order.
+    # Sequence-gap incidents: per client context, each persisted sequence must
+    # follow the one before it. A context starts at 1, or - when this hub
+    # received it by territory transfer - right after the high-water mark
+    # the transfer carried. A sequence that starts over at 1 is a restart of
+    # a hub that kept no state (a bare core), counted as a restart, not a gap
+    # (2026-10-14, repair plan 2.4: both used to count as gaps).
     seqs: dict[str, list[int]] = defaultdict(list)
     for e in by_kind["envelope.persisted"]:
         if "client_context_id" in e and e.get("sequence") is not None:
             seqs[e["client_context_id"]].append(e["sequence"])
-    gap_incidents = sum(
-        1 for run in seqs.values()
-        for i, s in enumerate(run, start=1) if s != i
-    )
+    first_expected: dict[str, int] = {}
+    for e in by_kind["territory.transfer.received"]:
+        for ctx, meta in (e.get("contexts") or {}).items():
+            if isinstance(meta, dict) and isinstance(meta.get("sequence_hwm"), int):
+                first_expected[ctx] = meta["sequence_hwm"] + 1
+    gap_incidents = sequence_restarts = 0
+    for ctx, run in seqs.items():
+        expected = first_expected.get(ctx, 1)
+        for s in run:
+            if s == 1 and expected != 1:
+                sequence_restarts += 1
+            elif s != expected:
+                gap_incidents += 1
+            expected = s + 1
 
     n_persisted = len(by_kind["envelope.persisted"])
     queue_health = {
@@ -172,6 +186,7 @@ def compute_kpis(events: list[dict]) -> dict:
         "ack_integrity": ack_integrity,
         "routing_latency": routing_latency,
         "sequence_gap_incidents": gap_incidents,
+        "sequence_restarts": sequence_restarts,
         "loop_suspensions": len(by_kind["loop.suspended"]),
         "manners_reinjections": {
             "count": len(by_kind["manners.reinjection"]),
