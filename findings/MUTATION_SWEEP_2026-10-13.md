@@ -58,6 +58,58 @@ operating-system lock for the log. After those changes:
 
 Run 9 found 30 survivors in the lock code: the reader not tested to wait for the lock, the file handle not tested to be closed, the owner kept on repair, mixed old and new pairing, a nesting counter that the outer reset made meaningless (now a flag), redundant return values and a redundant POSIX unlock (removed). Windows-only lines cannot run on Linux; see below. Run 10 confirmed 008fb8a. A third review found that reads needed write access to the log's folder (now: shared lock for reads, read-only fallback), that a busy lock was not handled in listing-assistants, and that two AuditLog instances in one process could wait on each other (now one lock state per file per process). Runs 11 and 12 confirmed a0006ac. A recheck before merging found that opening a log edited at line 2 and cut off at its end advised the repair, which then refused; the error now names the first break. The owner also asked for the four items left open at the gate to be fixed: the after-action report's run filter, the redundant tuple_legal clauses (removed, which removed one equivalent mutant), entry counts with blank lines, and the desk feed's style for a repair. Runs 13 and 14 are the confirmation for this commit: 931 mutants, 919 killed, 1 timeout, 11 survived.
 
+## 2026-10-14: after Phases 2 and 3
+
+The Phase 2 and 3 changes (signed intents declared by the identity, the
+demo spokes moved out, closed file handles, the restart- and
+transfer-aware sequence KPI, the notifier sending nothing with placeholder
+credentials, `notifier.unarmed`) touched core.py, hub.py, kpi.py,
+notifier.py, after_action.py, territory.py, loader.py and
+signer_registry.py, so the whole sweep was run again, with 2 jobs on a
+2-CPU machine so that timing-sensitive lock tests are not run under
+overload (a timing failure would count a mutant as killed).
+
+| Run | Code / tests | Mutants | Killed | Survived |
+|---|---|---|---|---|
+| 15. Whole sweep | 56c717d, 355 tests | 963 | 947 + 1 timeout (the same infinite-loop mutant) | 15: the 11 known and 4 in the new code |
+| 16. Those 4 again | 359 tests (tests/test_phase2_coverage.py added, no core code changed) | 4 | 4 | 0 |
+
+The 4 were: the KPI's check that a transfer record's high-water mark is a
+whole number in a dict (`and` -> `or` let a malformed record raise), the
+placeholder check (`or` -> `and` would send with one real and one
+placeholder credential), the 320-character cap (no test reached it once
+free text was dropped from the message), and the channel name on a
+not-configured result. In run 16 each was killed by its own new test; a
+first attempt was killed by the counts test instead (the suite had grown
+and the docs had not), so the docs were updated and the run repeated.
+That result (963 mutants, 951 killed, 1 timeout, 11 survived) held for
+56c717d. A cold review by a separate agent then found defects in the
+Phase 2 code, the worst in the sequence KPI (it hid gaps that main
+caught); the fixes changed core.py, hub.py, kpi.py, notifier.py and
+territory.py, so the sweep was run again:
+
+| Run | Code / tests | Mutants | Killed | Survived |
+|---|---|---|---|---|
+| 17. Whole sweep | eb41951, 366 tests | 995 | 982 + 1 timeout (the same infinite-loop mutant) | 12: the 11 known and 1 in the new KPI code |
+| 18. That 1 again | 366 tests (assertions added to an existing test, no core code changed) | 1 | 1 | 0 |
+
+The one was `booted_since[ctx] = False` where a transfer lands: no test
+had a hub boot, then the context arriving by transfer, then a 1. It is
+killed by the added case in
+`test_a_return_to_1_without_a_boot_is_a_gap_and_a_transfer_counts_where_it_lands`.
+A second review pass then led to small changes in hub.py (a hub.boot line),
+kpi.py (it reads hub.boot) and notifier.py (10-digit numbers, the sending
+number). Those three files were swept again; the other 13 had not changed
+since run 17:
+
+| Run | Code / tests | Mutants | Killed | Survived |
+|---|---|---|---|---|
+| 19. hub.py, kpi.py, notifier.py | 6076305, 368 tests | 381 | 380 | 1: the `Reject` equivalent below |
+
+Result for the merge: run 17 for the 13 unchanged files and run 19 for the
+three changed ones; every survivor is one of the 2 equivalent, 1 CPU-only
+and 8 Windows-only lines described below.
+
 ## What the survivors showed
 
 The first sweep's 214 survivors were not spread evenly; they clustered where

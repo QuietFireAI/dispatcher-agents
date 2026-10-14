@@ -342,6 +342,11 @@ class Captured:
 
 def test_the_sms_request_is_the_one_twilio_expects(monkeypatch):
     import dispatcher.notifier as n
+    monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", "ACtest")      # set, not the placeholder
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "test-token")
+    monkeypatch.setattr(n, "TWILIO_TO_NUMBER", "+12025550000")      # not the 555-01xx placeholder
+    monkeypatch.setattr(n, "TWILIO_WHATSAPP_TO", "whatsapp:+12025550000")
+    monkeypatch.setattr(n, "TWILIO_FROM_NUMBER", "+12025550001")
     cap = Captured()
     monkeypatch.setattr(n.urllib.request, "urlopen", cap)
     out = n.send_sms_via_twilio("hello")
@@ -356,6 +361,11 @@ def test_the_sms_request_is_the_one_twilio_expects(monkeypatch):
 
 def test_the_whatsapp_request_is_the_one_twilio_expects(monkeypatch):
     import dispatcher.notifier as n
+    monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", "ACtest")      # set, not the placeholder
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "test-token")
+    monkeypatch.setattr(n, "TWILIO_TO_NUMBER", "+12025550000")      # not the 555-01xx placeholder
+    monkeypatch.setattr(n, "TWILIO_WHATSAPP_TO", "whatsapp:+12025550000")
+    monkeypatch.setattr(n, "TWILIO_FROM_NUMBER", "+12025550001")
     cap = Captured()
     monkeypatch.setattr(n.urllib.request, "urlopen", cap)
     assert n.send_whatsapp_via_twilio("hi", to_number="+15550001111") == \
@@ -367,6 +377,11 @@ def test_the_whatsapp_request_is_the_one_twilio_expects(monkeypatch):
 
 def test_a_refused_page_keeps_at_most_300_characters_of_the_answer(monkeypatch):
     import dispatcher.notifier as n
+    monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", "ACtest")      # set, not the placeholder
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "test-token")
+    monkeypatch.setattr(n, "TWILIO_TO_NUMBER", "+12025550000")      # not the 555-01xx placeholder
+    monkeypatch.setattr(n, "TWILIO_WHATSAPP_TO", "whatsapp:+12025550000")
+    monkeypatch.setattr(n, "TWILIO_FROM_NUMBER", "+12025550001")
 
     def refuse(req, timeout=5.0):
         raise urllib.error.HTTPError(req.full_url, 401, "no", {}, io.BytesIO(b"z" * 900))
@@ -385,6 +400,11 @@ def test_a_wait_id_is_named_in_the_page_only_when_there_is_one():
 
 def test_a_page_that_never_reaches_twilio_is_a_failure_with_the_error(monkeypatch):
     import dispatcher.notifier as n
+    monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", "ACtest")      # set, not the placeholder
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "test-token")
+    monkeypatch.setattr(n, "TWILIO_TO_NUMBER", "+12025550000")      # not the 555-01xx placeholder
+    monkeypatch.setattr(n, "TWILIO_WHATSAPP_TO", "whatsapp:+12025550000")
+    monkeypatch.setattr(n, "TWILIO_FROM_NUMBER", "+12025550001")
 
     def offline(req, timeout=5.0):
         raise OSError("network unreachable")

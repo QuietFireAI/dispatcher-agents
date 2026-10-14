@@ -159,6 +159,11 @@ class _Resp:
 
 def test_whatsapp_sends_with_the_channel_prefix(monkeypatch):
     import dispatcher.notifier as n
+    monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", "ACtest")      # set, not the placeholder
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "test-token")
+    monkeypatch.setattr(n, "TWILIO_TO_NUMBER", "+12025550000")      # not the 555-01xx placeholder
+    monkeypatch.setattr(n, "TWILIO_WHATSAPP_TO", "whatsapp:+12025550000")
+    monkeypatch.setattr(n, "TWILIO_FROM_NUMBER", "+12025550001")
     sent = []
 
     def fake_urlopen(req, timeout=5.0):
@@ -174,6 +179,11 @@ def test_whatsapp_sends_with_the_channel_prefix(monkeypatch):
 
 def test_whatsapp_failures_are_reported_not_raised(monkeypatch):
     import dispatcher.notifier as n
+    monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", "ACtest")      # set, not the placeholder
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "test-token")
+    monkeypatch.setattr(n, "TWILIO_TO_NUMBER", "+12025550000")      # not the 555-01xx placeholder
+    monkeypatch.setattr(n, "TWILIO_WHATSAPP_TO", "whatsapp:+12025550000")
+    monkeypatch.setattr(n, "TWILIO_FROM_NUMBER", "+12025550001")
 
     def http_error(req, timeout=5.0):
         raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, io.BytesIO(b"bad creds"))

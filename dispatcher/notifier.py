@@ -7,12 +7,12 @@ never route to a real phone, and is trivially greppable/replaceable.
 Swap TWILIO_TO_NUMBER (env var or the constant below) for the real
 on-call number when ready.
 
-This is a real, working implementation, not a stub: the message
-formatting is real, and send_sms_via_twilio() makes an actual HTTPS POST
-to Twilio's real endpoint. Until real TWILIO_ACCOUNT_SID/AUTH_TOKEN
-credentials replace the placeholders, calls will fail with a 401 from
-Twilio itself - that's expected, and is itself proof the wiring is
-correct (a malformed request or bad hostname would fail differently).
+send_sms_via_twilio() makes a real HTTPS POST to Twilio's endpoint once
+real TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN are set. While either is still
+a placeholder nothing is posted: the call returns "failed" with
+"Twilio not configured", and the hub records human.notify_failed
+(2026-10-14; before, every escalation posted with the placeholders and got
+a 401). docs/TUNING_MANUAL.md lists every placeholder here.
 """
 from __future__ import annotations
 
@@ -33,29 +33,71 @@ TWILIO_WHATSAPP_TO = os.environ.get("TWILIO_WHATSAPP_TO", f"whatsapp:{DEFAULT_TO
 
 
 def format_notification_text(queue: str, record: dict, max_length: int = 320) -> str:
-    """Builds the actual SMS/WhatsApp body from a queue name + record. Real
-    formatting logic - pulls whatever's actually present (reason/trigger/
-    agent/context), never invents fields that aren't there."""
+    """Builds the SMS/WhatsApp body from a queue name + record: the queue,
+    the agent, the client context id and (when there is one) the wait id -
+    never the record's free text. Since 2026-10-14 (repair plan 2.4) the
+    reason/trigger text is left out: it can carry a client's own words, and
+    a text message leaves the system. listing-assistants' pager does the same."""
     ctx = record.get("client_context_id", "unknown")
     agent = record.get("agent") or record.get("from_agent") or "?"
-    reason = (record.get("reason") or record.get("trigger")
-             or (record.get("payload") or {}).get("reason") or "")
     wait_id = record.get("wait_id", "")
-    
     text = f"[DispatcherAgents] {queue} | agent={agent} ctx={ctx}"
     if wait_id:
         text += f" | wait_id={wait_id}"
-    if reason:
-        text += f" | {reason}"
     return text[:max_length]
+
+
+def _unset(value: str) -> bool:
+    """Empty, or a placeholder: PLACEHOLDER... or YOUR_... in any case."""
+    v = (value or "").strip().upper()
+    return not v or v.startswith(("PLACEHOLDER", "YOUR_"))
+
+
+def is_fictional_number(number: str) -> bool:
+    """A NANP number in the 555-0100..0199 block, which is reserved for
+    fiction in every area code (the shipped placeholders are in it). Such a
+    number never reaches a phone."""
+    raw = (number or "").replace("whatsapp:", "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) == 10 and not raw.startswith("+"):   # written without the country code
+        digits = "1" + digits
+    return len(digits) == 11 and digits[0] == "1" and digits[4:9] == "55501"
+
+
+def twilio_configured() -> bool:
+    """False while TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN is empty or still
+    a placeholder. Nothing is sent then (2026-10-14: every escalation used to
+    post to Twilio with the placeholders and get a 401; the cold review then
+    found an empty SID or a `your_...` value still counted as configured)."""
+    return not (_unset(TWILIO_ACCOUNT_SID) or _unset(TWILIO_AUTH_TOKEN))
+
+
+def _not_configured(channel: str | None = None, error: str | None = None) -> dict:
+    out = {"status": "failed", "is_fallback": True,
+           "error": error or ("Twilio not configured: TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN "
+                              "are empty or placeholders - nothing was sent"),
+           "fallback_reason": "not configured; not delivered, the hub records "
+                              "human.notify_failed"}
+    if channel:
+        out["channel"] = channel
+    return out
 
 
 def send_sms_via_twilio(body: str, to_number: str | None = None,
                         timeout: float = 5.0) -> dict:
-    """Real Twilio REST API call - POSTs to the actual endpoint. Fails
-    with a 401 until real credentials replace the placeholders above;
-    that failure mode is expected and correct, not swallowed."""
+    """Real Twilio REST API call - POSTs to the actual endpoint. With the
+    placeholder credentials still in place nothing is posted (2026-10-14);
+    with real ones, any error (401, network) comes back as "failed", never
+    swallowed."""
+    if not twilio_configured():
+        return _not_configured()
     to_number = to_number or TWILIO_TO_NUMBER
+    if is_fictional_number(to_number):
+        return _not_configured(error=f"destination {to_number} is a placeholder "
+                                     f"(555-01xx) - nothing was sent")
+    if is_fictional_number(TWILIO_FROM_NUMBER):
+        return _not_configured(error=f"sending number {TWILIO_FROM_NUMBER} is a placeholder "
+                                     f"(555-01xx); set TWILIO_FROM_NUMBER - nothing was sent")
     url = (f"https://api.twilio.com/2010-04-01/Accounts/"
           f"{TWILIO_ACCOUNT_SID}/Messages.json")
     data = urllib.parse.urlencode({
@@ -86,9 +128,16 @@ def send_whatsapp_via_twilio(body: str, to_number: str | None = None,
                              from_number: str | None = None,
                              timeout: float = 5.0) -> dict:
     """Real Twilio WhatsApp REST API call. Ensures numbers carry the
-    'whatsapp:' channel prefix required by Twilio."""
+    'whatsapp:' channel prefix required by Twilio. Nothing is posted while
+    the credentials are placeholders (2026-10-14)."""
+    if not twilio_configured():
+        return _not_configured("whatsapp")
     raw_to = to_number or TWILIO_WHATSAPP_TO
     raw_from = from_number or TWILIO_WHATSAPP_FROM
+    if is_fictional_number(raw_to) or is_fictional_number(raw_from):
+        which = raw_to if is_fictional_number(raw_to) else raw_from
+        return _not_configured("whatsapp", error=f"number {which} is a placeholder "
+                                                 f"(555-01xx) - nothing was sent")
 
     formatted_to = raw_to if raw_to.startswith("whatsapp:") else f"whatsapp:{raw_to}"
     formatted_from = raw_from if raw_from.startswith("whatsapp:") else f"whatsapp:{raw_from}"
@@ -116,8 +165,9 @@ def send_whatsapp_via_twilio(body: str, to_number: str | None = None,
 
 def sms_human_notifier(queue: str, record: dict) -> dict:
     """The actual human_notifier callback to wire into Hub(...,
-    human_notifier=sms_human_notifier). Real send attempt on every call -
-    not conditional, not mocked by default."""
+    human_notifier=sms_human_notifier). A real send on every call once the
+    credentials and the destination are real; with any of them still a
+    placeholder nothing is posted and the result says so."""
     body = format_notification_text(queue, record)
     return send_sms_via_twilio(body)
 

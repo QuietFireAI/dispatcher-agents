@@ -1,5 +1,9 @@
 # dispatcher-agents runtime - Day 1 build (DRAFT)
 
+> **Build diary, June-July 2026.** Each day's numbers (routes, test counts)
+> are as of that day and read as history, not as the current state. For
+> what holds today see [README.md](./README.md) and [EVIDENCE.md](./EVIDENCE.md).
+
 The message core of the TelsonBase dispatcher, doctrine as executable behavior.
 Every claim below is a passing test in tests/test_hub.py, run against the REAL
 35-route listing-agent track (routes_fixture.json), not toy data:

@@ -30,6 +30,11 @@ from collections import defaultdict
 
 
 NOTIFY_OUTCOMES = ("human.notified", "human.notify_failed")
+# A hub boot: hub.boot is the first line every Hub writes (2026-10-14). Logs
+# from before it have one of the JEV declarations, also written once per boot;
+# a log with both counts the boot once (one hub writes them one line apart,
+# with nothing persisted between).
+BOOT_KINDS = ("hub.boot", "jev.unarmed_fallback", "jev.key_present")
 
 
 def pair_escalations(events: list[dict]) -> list[tuple[dict, dict | None]]:
@@ -93,16 +98,41 @@ def compute_kpis(events: list[dict]) -> dict:
         "p50_s": latencies[len(latencies) // 2] if latencies else None,
     }
 
-    # Sequence-gap incidents: per client context, persisted sequences must be
-    # a gapless 1..n run in arrival order.
-    seqs: dict[str, list[int]] = defaultdict(list)
-    for e in by_kind["envelope.persisted"]:
-        if "client_context_id" in e and e.get("sequence") is not None:
-            seqs[e["client_context_id"]].append(e["sequence"])
-    gap_incidents = sum(
-        1 for run in seqs.values()
-        for i, s in enumerate(run, start=1) if s != i
-    )
+    # Sequence-gap incidents: per client context, each persisted sequence must
+    # follow the one before it. The log is walked in order. A context starts
+    # at 1; where this hub receives it by territory transfer, it continues
+    # from the carried high-water mark at that point in the log. A sequence
+    # that goes back to 1 is a restart only when a hub boot sits between it
+    # and the context's previous entry (a bare core keeps no sequence state
+    # across restarts); any other break - a duplicate, a jump, a context
+    # still routed after it was released - is a gap. (2026-10-14: the first
+    # version of this counted every return to 1 as a restart, and applied a
+    # transfer's mark to the start of the context's history; the cold review
+    # showed both hid real gaps.)
+    gap_incidents = sequence_restarts = 0
+    expected: dict[str, int] = {}
+    booted_since: dict[str, bool] = {}
+    for e in events:
+        k = e.get("kind")
+        if k in BOOT_KINDS:
+            for c in booted_since:
+                booted_since[c] = True
+        elif k == "territory.transfer.received":
+            for ctx, meta in (e.get("contexts") or {}).items():
+                if isinstance(meta, dict) and isinstance(meta.get("sequence_hwm"), int):
+                    expected[ctx] = meta["sequence_hwm"] + 1
+                    booted_since[ctx] = False
+        elif (k == "envelope.persisted" and "client_context_id" in e
+              and e.get("sequence") is not None):
+            ctx, s = e["client_context_id"], e["sequence"]
+            want = expected.get(ctx, 1)
+            if s != want:
+                if s == 1 and booted_since.get(ctx):
+                    sequence_restarts += 1
+                else:
+                    gap_incidents += 1
+            expected[ctx] = s + 1
+            booted_since[ctx] = False
 
     n_persisted = len(by_kind["envelope.persisted"])
     queue_health = {
@@ -172,6 +202,7 @@ def compute_kpis(events: list[dict]) -> dict:
         "ack_integrity": ack_integrity,
         "routing_latency": routing_latency,
         "sequence_gap_incidents": gap_incidents,
+        "sequence_restarts": sequence_restarts,
         "loop_suspensions": len(by_kind["loop.suspended"]),
         "manners_reinjections": {
             "count": len(by_kind["manners.reinjection"]),

@@ -1,5 +1,10 @@
 # EVIDENCE - dispatcher-agents runtime build (this thread's claims)
 
+> **Record of the 2026-07-18 build.** Its numbers (51 routes, 103 tests) are
+> as of that day. The current ledger is [EVIDENCE.md](./EVIDENCE.md), which
+> wins where they differ. One line below was wrong even then and is
+> corrected in place: the heartbeat watchdog.
+
 Append-candidates for the org EVIDENCE.md ledger. Classes per ledger
 convention: MEASURED / OBSERVED / HYPOTHESIS / DESIGN CLAIM / POSITION.
 Ledger wins; README is a bug.
@@ -23,5 +28,6 @@ Ledger wins; README is a bug.
 | Signer registry binds authority envelopes to authorized human logins (IdP+MFA doctrine) | MEASURED (stamp-vs-registry) / DESIGN CLAIM (IdP session authenticity - adapter's job) | test_signer_chain.py: authorized ack, wrong-login/no-MFA/no-session/revoked reject, UNRATIFIED template refuses to arm, unarmed audited |
 
 NOT claimed: production readiness; IdP session validation in-runtime (adapter
-responsibility per INTEGRATIONS.md); heartbeat watchdog (unimplemented);
+responsibility per INTEGRATIONS.md); a running heartbeat (the Watchdog class
+exists and names gaps, but the hub emits no heartbeats on its own);
 licensed legal review of any vertical content.

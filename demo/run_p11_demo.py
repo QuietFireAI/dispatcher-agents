@@ -21,7 +21,7 @@ from dispatcher.priority import SidingScheduler
 from dispatcher.analysis import analyze_reflections, score_spoke_traces
 from dispatcher.after_action import generate_report
 from dispatcher.runs import PlaybookRun, Watchdog, heartbeat
-from dispatcher.spokes import (Spoke01LeadCapture, Spoke02Qualification,
+from listing_demo_spokes import (Spoke01LeadCapture, Spoke02Qualification,
                                Spoke03Nurture, Spoke14CRM)
 from dispatcher.signatures import Ed25519Signer, Ed25519Verifier
 from dispatcher.territory import build_transfer, receive_transfer, confirm_release

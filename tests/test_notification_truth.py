@@ -121,6 +121,11 @@ def test_the_record_cannot_overwrite_the_framing(tmp_path):
 
 def test_the_shipped_sms_notifier_with_a_401_is_a_failure(tmp_path, monkeypatch):
     import dispatcher.notifier as n
+    monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", "ACtest")      # set, not the placeholder
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "test-token")
+    monkeypatch.setattr(n, "TWILIO_TO_NUMBER", "+12025550000")      # not the 555-01xx placeholder
+    monkeypatch.setattr(n, "TWILIO_WHATSAPP_TO", "whatsapp:+12025550000")
+    monkeypatch.setattr(n, "TWILIO_FROM_NUMBER", "+12025550001")
 
     def reject(req, timeout=5.0):
         raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {},

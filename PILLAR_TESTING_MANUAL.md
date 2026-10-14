@@ -2,7 +2,7 @@
 
 The gate this manual enforces: each pillar correct on its own, AND the six
 functioning together on a bare dispatcher - or no dispatcher agents. The
-numbers captured here are the BASELINE KPIs every identity (listing-agents
+numbers captured here are the BASELINE KPIs every identity (listing-assistants
 first) is measured against.
 
 Flow: install -> per-pillar validation -> integrated baseline run (KPIs) ->
@@ -34,10 +34,10 @@ that pillar regressed; stop, report the raw failure. Do not proceed to
 integration on a broken pillar - the set cannot be validated on a bad part.
 
 Then the dispatcher's suite from its clone: `python3 -m pytest tests/ -q`
-EXPECTED: 339 passed, 5 skipped. (The 5 identity-dependent tests activate
+EXPECTED: 362 passed, 6 skipped. (The 6 identity-dependent tests activate
 when IDENTITY_DIR points at a listing-assistants clone, or when one sits at
-the conventional sibling path `../listing-assistants` - then 344 passed, as
-of 2026-10-13. CI runs both: the clone alone, and with the listing identity
+the conventional sibling path `../listing-assistants` - then 368 passed, as
+of 2026-10-14. CI runs both: the clone alone, and with the listing identity
 on Linux 3.10/3.12/3.13 and Windows, where any skip fails the job.)
 
 ## PHASE 2 - Six pillars together on the bare dispatcher
@@ -54,21 +54,26 @@ does not fire. EXPECTED output, exactly this shape:
     selfcheck held envelope: held (selfcheck FAIL: guaranteed)
 
 What each count proves:
-- beforeturn.check 1: hub re-read its own reflections at turn entry and
-  answered the pillar's 4 questions (auto-hook, not manual call).
+- beforeturn.check 1: at turn entry the hub wrote the pillar's 4 questions
+  to the log with its own recent reflections (auto-hook, not manual call).
+  Nothing answers the questions yet; the event shows the hook ran.
 - openmind.drift 4: every hub reasoning-vs-action artifact scored by the
   pillar Comparator, including one deliberately drifted reflection.
 - agentopenmind.tainted 1: probe p2 returned a result with NO thought;
   the pillar gate flagged it at ingestion. The dark trace is planted -
   a baseline with zero taints would mean the gate was never tempted.
-- selfcheck.verdict 4: exit gate reviewed every outbound delivery; the
-  envelope whose payload said "guaranteed" is HELD in clarification -
+- selfcheck.verdict 4: exit gate reviewed every outbound delivery (the
+  reviewer here is a keyword stub: "guaranteed" fails, anything else
+  passes); the envelope whose payload said "guaranteed" is HELD in clarification -
   persisted, never delivered, never acked, flagged line on the log.
 - sleepmark.captured 1: the crew change (signed territory transfer to a
-  second hub) carried the reasoning state; audit-b.jsonl on the receiving
-  hub shows sleepmark.restored.
+  second hub) carried the mark; audit-b.jsonl on the receiving hub logs it
+  as sleepmark.restored (a historical name: the mark is logged, nothing in
+  the receiving hub is restored from it).
 - splitvantage.review 1: the drifted reflection triggered an automatic
-  two-model second opinion (word-boundary counting, the fixed defect).
+  two-model second opinion on the two stub models' canned answers. The
+  diff is the pillar's analyze_diff (word-boundary counts of hedges and
+  length), not its semantic_diff.
 
 Also verify the unarmed contract: boot a hub with NO reviewer models
 (python3 -c or any test) and confirm selfcheck.unarmed and
@@ -107,8 +112,10 @@ keypair and keep the private key OFF the machine that runs spokes -
       open('owner.key','wb').write(s.private_key_bytes()); \
       open('owner.pub','wb').write(s.public_key_bytes())"
 
-Hub boots with the verifier only (public key). Every config.update and
-listing.change.authorized must be signed with owner.key or it is rejected
+Hub boots with the verifier only (public key). Every config.update, every
+`.authority` intent, and every intent the identity lists under
+"signed_intents" in its routes.json (listing-assistants lists
+listing.change.authorized) must be signed with owner.key or it is rejected
 and flagged - the baseline run already proved that path with a signed
 config.update carrying {"spec_owner": "human"}. Sign the boot manifest with
 the same key (attest_boot(..., signer=...)) so WHAT is running is bound to

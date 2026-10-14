@@ -37,7 +37,11 @@ from typing import Callable, Optional
 from .core import Envelope, Routes, AuditLog, AUDIENCE_GATED, AUDIENCE_DEFAULT
 from .absolute_signal import rebuttal
 
-AUTHORITY_INTENTS = {"listing.change.authorized", "config.update"}
+# The core's own signed intents. An identity declares any others in its
+# routes.json ("signed_intents"); the hub adds those (owner decision D2,
+# 2026-10-14 - the core used to hard-code the listing identity's
+# listing.change.authorized here).
+AUTHORITY_INTENTS = {"config.update"}
 
 # A notifier result whose status is one of these means a person was reached
 # (a page was accepted for delivery, or the alert was put on a screen).
@@ -48,14 +52,16 @@ AUTHORITY_INTENTS = {"listing.change.authorized", "config.update"}
 NOTIFY_DELIVERED = {"sent", "delivered", "shown"}
 
 
-def is_authority(intent: str) -> bool:
-    """Authority classification for the enforcement gate. Identity modules
-    across the stack name signed-human lanes with the `.authority` suffix
-    (payment.authority, ratecon.authority, comp.authority, ...); the static
-    set keeps config.update and the original listing intent. A hardcoded
-    set alone was the defect: identity authority intents sailed past the
-    signature gate unchecked."""
-    return intent.endswith(".authority") or intent in AUTHORITY_INTENTS
+def is_authority(intent: str, declared=frozenset()) -> bool:
+    """Authority classification for the enforcement gate: an intent that
+    must carry a verified signature. Three sources: the `.authority` suffix
+    (payment.authority, ratecon.authority, comp.authority, ...), the core's
+    own AUTHORITY_INTENTS (config.update), and `declared` - the signed
+    intents the identity names in its routes.json (Routes.signed_intents),
+    which the hub passes. A hardcoded set alone was the original defect:
+    identity authority intents sailed past the signature gate unchecked."""
+    return (intent.endswith(".authority") or intent in AUTHORITY_INTENTS
+            or intent in declared)
 
 
 def _plain(v):
@@ -91,8 +97,8 @@ class Hub:
         # at ratification (no real production traffic yet to measure a
         # normal repeat-count against), and none was invented to justify it.
         # Revisit once real after-action data exists; until then this is a
-        # decided value, not an open question. Same discipline as MANNERS
-        # N=10, ratified the same day for the same reason.
+        # decided value, not an open question. (MANNERS N=10 was ratified
+        # the same day but is NOT IMPLEMENTED - see manners_reinjection.)
         self.routes = routes
         self.audit = audit
         self.verify_sig = signature_verifier or (lambda env: False)
@@ -107,10 +113,27 @@ class Hub:
         # crypto signature still required, WHO-signed binding is off and
         # says so. It never silently defaults.
         self.signer_registry = signer_registry
+        # The first line every hub writes: the sequence KPI reads it as the
+        # point where a hub started (2026-10-14, after the second review:
+        # the KPI had used the JEV declaration as that marker).
+        self.audit.append("hub.boot", {"routes_version": routes.version})
         if selfcheck_model is None:
             self.audit.append("selfcheck.unarmed",
                               {"scope": "boot", "reason": "no reviewer model "
                                "configured - exit gate off, declared not silent"})
+        if signature_verifier is None:
+            # 2026-10-14 cold review: with no verifier every authority envelope
+            # fails verification and is logged as an integrity violation, so a
+            # missing setting read as tampering. Say so once at boot.
+            self.audit.append("verifier.unarmed",
+                              {"scope": "boot", "reason": "no signature verifier configured - "
+                               "every authority envelope will be refused as unverified"})
+        if human_notifier is None:
+            # 2026-10-14: an unarmed mode that used to be silent - an
+            # escalation was raised and nothing said no person could be told.
+            self.audit.append("notifier.unarmed",
+                              {"scope": "boot", "reason": "no human_notifier "
+                               "configured - escalations reach no person, declared not silent"})
         if crosspol_models is None:
             self.audit.append("splitvantage.unarmed",
                               {"scope": "boot", "reason": "no reviewer pair "
@@ -239,11 +262,15 @@ class Hub:
     MANNERS_TRIGGERS = ("phase_gate", "post_compaction", "turn_backstop")
 
     def manners_reinjection(self, trigger: str, position: str = "") -> None:
-        """MANNERS.md anti-fade mechanism, instrumented: phase_gate and
-        post_compaction are CONSTANTS; turn_backstop is the N=10 backstop,
-        RATIFIED (owner, 2026-07-17) as a deliberate placeholder pending
-        real fade-rate data. Counts and positions feed after-action
-        fade-tracking."""
+        """Records a MANNERS.md re-injection that the caller reports; it
+        re-injects nothing itself. The trigger names are fixed:
+        phase_gate, post_compaction, turn_backstop. Counts and positions
+        feed the KPIs and the after-action report.
+
+        NOT IMPLEMENTED (owner decision D7, 2026-10-14): the N=10 turn
+        backstop ratified 2026-07-17. Nothing in the core counts turns or
+        fires turn_backstop; a caller has to. A deterministic swarm has no
+        turn loop for it to count."""
         if trigger not in self.MANNERS_TRIGGERS:
             raise ValueError(f"unknown manners trigger {trigger!r}; "
                              f"constants are {self.MANNERS_TRIGGERS}")
@@ -499,7 +526,7 @@ class Hub:
             if errs:
                 return self._reject(env, f"schema: {errs}")
             # 2. authority signature - the signature, not the sender field, is trust
-            if is_authority(env.intent):
+            if is_authority(env.intent, self.routes.signed_intents):
                 if not self.verify_sig(env):
                     self.queue_and_notify("integrity.violation", env.to_record())
                     self.audit.append("integrity.violation",

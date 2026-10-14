@@ -1,5 +1,19 @@
 """Territories - dispatcher-to-dispatcher handoff (DISPATCHER_CORE §Territories).
 
+EXPERIMENTAL (owner decision D6, 2026-10-14): no product uses territories,
+and these limits stand until a second office does. Each is pinned by a test
+in tests/test_territory_limits.py, so changing one is a deliberate step:
+  - a transfer record carries no nonce or expiry: receiving an old record
+    again sets a context's sequence back to that record's high-water mark;
+  - held disclosure messages (the absolute-signal holds), the dedupe set
+    and the loop counts stay with the sending hub;
+  - confirm_release clears only the sender's sequence counters; its queue
+    items for those contexts stay (so a context's open items can be in
+    both regions after a transfer);
+  - the sender is not stopped from routing a released context: a send
+    there is acked and numbered from 1 again, so the context is then live
+    in two regions (the sequence KPI counts it as a gap).
+
 The spec, implemented literally:
 - Transfer record = client-context ownership + sequence high-water mark per
   context + open holds/queue items + the attested resource manifest.
@@ -7,8 +21,9 @@ The spec, implemented literally:
   or badly signed transfer is refused, audited, and queued for human review;
   contexts are never adopted on trust.
 - The receiver acks the transfer the way it acks any envelope: persisted to
-  its audit log FIRST, then confirmed. No context is ever in two regions:
-  the sender marks contexts released only on the receiver's ack.
+  its audit log FIRST, then confirmed. The sender marks contexts released
+  only on the receiver's ack (the design aim is that no context is in two
+  regions; the limits above say where today's code falls short of it).
 - Spoke invariance: nothing here touches spokes. A transferred context's
   next envelope routes on the receiving hub with the sequence continuing
   from the high-water mark - the train never knows the dispatcher changed.
