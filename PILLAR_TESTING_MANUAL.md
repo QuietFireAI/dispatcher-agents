@@ -2,7 +2,7 @@
 
 The gate this manual enforces: each pillar correct on its own, AND the six
 functioning together on a bare dispatcher - or no dispatcher agents. The
-numbers captured here are the BASELINE KPIs every identity (listing-agents
+numbers captured here are the BASELINE KPIs every identity (listing-assistants
 first) is measured against.
 
 Flow: install -> per-pillar validation -> integrated baseline run (KPIs) ->
@@ -34,10 +34,10 @@ that pillar regressed; stop, report the raw failure. Do not proceed to
 integration on a broken pillar - the set cannot be validated on a bad part.
 
 Then the dispatcher's suite from its clone: `python3 -m pytest tests/ -q`
-EXPECTED: 339 passed, 5 skipped. (The 5 identity-dependent tests activate
+EXPECTED: 349 passed, 6 skipped. (The 6 identity-dependent tests activate
 when IDENTITY_DIR points at a listing-assistants clone, or when one sits at
-the conventional sibling path `../listing-assistants` - then 344 passed, as
-of 2026-10-13. CI runs both: the clone alone, and with the listing identity
+the conventional sibling path `../listing-assistants` - then 355 passed, as
+of 2026-10-14. CI runs both: the clone alone, and with the listing identity
 on Linux 3.10/3.12/3.13 and Windows, where any skip fails the job.)
 
 ## PHASE 2 - Six pillars together on the bare dispatcher
@@ -54,8 +54,9 @@ does not fire. EXPECTED output, exactly this shape:
     selfcheck held envelope: held (selfcheck FAIL: guaranteed)
 
 What each count proves:
-- beforeturn.check 1: hub re-read its own reflections at turn entry and
-  answered the pillar's 4 questions (auto-hook, not manual call).
+- beforeturn.check 1: at turn entry the hub wrote the pillar's 4 questions
+  to the log with its own recent reflections (auto-hook, not manual call).
+  Nothing answers the questions yet; the event shows the hook ran.
 - openmind.drift 4: every hub reasoning-vs-action artifact scored by the
   pillar Comparator, including one deliberately drifted reflection.
 - agentopenmind.tainted 1: probe p2 returned a result with NO thought;

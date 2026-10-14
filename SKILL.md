@@ -9,7 +9,7 @@ description: >
   traces, pre-response-selfcheck on outbound text, sleep-marks on territory
   transfers, splitvantage on drift-flagged decisions). Trigger on: dispatching
   work to sub-agents, routing messages between agents, loading a swarm
-  identity (e.g. listing-agents), verifying an agent swarm, or any request
+  identity (e.g. listing-assistants), verifying an agent swarm, or any request
   for auditable agent orchestration. Ambiguous traffic is held at restricted
   speed, never dropped and never silently admitted.
 ---
@@ -25,7 +25,7 @@ truth for everything that happened.
 
 The runtime is the open credibility layer of the DispatcherAgents stack.
 An **identity** (a directory of routes, priority classes, agents, and
-playbooks — e.g. QuietFireAI/listing-agents) turns the generic dispatcher
+playbooks — e.g. QuietFireAI/listing-assistants) turns the generic dispatcher
 into a working vertical: "dispatcher-agents wearing an identity."
 
 ## Doctrine the runtime enforces (each rule is a passing test)
@@ -73,7 +73,7 @@ pip install -e ".[pillars,crypto,dev]"   # pillars pulled from source, never ven
 ### Verify before claiming anything works
 
 ```bash
-python -m pytest tests/                  # 339 passed + 5 skipped with no listing-assistants clone beside this repo; 344 passed with one (found at ../listing-assistants, or set IDENTITY_DIR)
+python -m pytest tests/                  # 349 passed + 6 skipped with no listing-assistants clone beside this repo; 355 passed with one (found at ../listing-assistants, or set IDENTITY_DIR)
 python demo/baseline_run.py              # must print all six pillar events nonzero
 python tools/kpi_gate.py baseline-out/audit-<id>.jsonl \
     --taints-expected 1 --selfcheck-bait-expected 1

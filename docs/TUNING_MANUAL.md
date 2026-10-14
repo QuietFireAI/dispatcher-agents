@@ -1,37 +1,90 @@
 # TUNING_MANUAL - dispatcher-agents (core runtime)
 
-Every configurable parameter and deliberate placeholder in the core.
-Rule: any commit introducing a tunable updates this manual in the same
-commit. Identity repos carry their own manuals for identity content;
-this one covers the chassis every identity rides on.
+Every configurable parameter, deliberate placeholder, stand-in and
+partial mechanism in the core. Rule: any commit that adds a tunable, a
+placeholder or a fallback mode updates this manual in the same commit.
+Identity repos carry their own manuals for identity content; this one
+covers the chassis every identity rides on.
+
+Inventory taken from the code on 2026-10-14 (v1.2.0). Section A lists
+the modes in which part of the core runs as a stand-in or not at all;
+section B lists the fixed values put in so the core can be tested and
+operated before real ones exist; section C lists the constants that are
+doctrine rather than tuning.
 
 ---
 
-## TOP OF LIST - Deliberate placeholders & ratified constants
+## A. Stand-ins, unarmed modes and partial mechanisms
 
-| Item | Where | Status | Notes |
+"Declares itself" names the line the core writes to the audit log, so a
+reader of the log can tell the mode is on. Every mode below declares
+itself except where the row says otherwise.
+
+| Mode | Where | What happens in this mode | Declares itself | To replace |
+|---|---|---|---|---|
+| Exit gate unarmed (pre-response-selfcheck) | `Hub(selfcheck_model=None)`, `dispatcher/pillars.py` | Outbound text is not reviewed | `selfcheck.unarmed` at boot and on each outbound check | Pass a reviewer callable as `selfcheck_model` |
+| Second opinion unarmed (splitvantage) | `Hub(crosspol_models=None)` | Drift-flagged reflections get no second model | `splitvantage.unarmed` at boot | Pass a pair of model callables as `crosspol_models` |
+| before-turn / agent-open-mind package absent | `dispatcher/hub.py` (core installed without the `[pillars]` extra) | That pillar's check does not run | `beforeturn.unarmed`, `agentopenmind.unarmed` | `pip install -e ".[pillars]"` |
+| No human notifier | `Hub(human_notifier=None)` | Escalations and queue landings reach no person; the escalation KPI counts them as unnotified | `notifier.unarmed` at boot (added 2026-10-14; before, this mode was silent) | Pass a notifier, e.g. one built on `dispatcher/notifier.py` |
+| Twilio notifier with placeholder credentials | `dispatcher/notifier.py` | Nothing is posted; each call returns `failed`, "Twilio not configured", and the hub records `human.notify_failed` | Yes: every notification shows as failed with that reason | Set `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` (and the numbers in section B) |
+| Signer registry not armed | `Hub(signer_registry=None)` | The Ed25519 signature is still required; which person signed is not checked | `signer.unarmed` on each authority envelope | `hub.arm_signer_registry(identity_root)` with the identity's ratified `config/authority_signers.json`. This repo has no `config/`, so the default path raises here; identity repos ship their own file |
+| No signature verifier | `Hub(signature_verifier=None)` | Every authority envelope fails verification (fail closed) | Each refusal goes to `integrity.violation` | Pass a verifier (`dispatcher/signatures.py`) |
+| IdP session liveness | `dispatcher/signer_registry.py` | The registry checks that the stamp names an `idp_session_ref` and attests MFA; whether that session is genuine is not checked in the core | Stated in the module docstring, not on the log | The identity's IdP adapter validates the session |
+| JEV decisions | `dispatcher/hub.py` boot | The hub never calls JEV; without `JEV_API_KEY` the identity's local rules decide | `jev.unarmed_fallback` (`FALLBACK_LOCAL_RULES`) at boot; `jev.key_present` when a key is set | Set `JEV_API_KEY` (and `JEV_ENDPOINT_URL`); the identity's decision adapter decides whether to call |
+| MANNERS N=10 turn backstop | `Hub.manners_reinjection` | **NOT IMPLEMENTED** (owner decision D7, 2026-10-14). Nothing counts turns or fires `turn_backstop`; the method records a re-injection a caller reports and re-injects nothing | No (the value exists only as a ratified number) | A caller that counts turns and calls `manners_reinjection("turn_backstop")` |
+| Heartbeat | `dispatcher/runs.py` | The Watchdog observes heartbeat events and names gaps; the hub emits none on its own | No | Call `heartbeat(hub)` on a schedule and run a `Watchdog(cadence_s)` |
+| Boot attestation unsigned | `dispatcher/attestation.py` | With no signer the manifest proves what is running, not who approved it | `"signed": false` in the attestation event | Pass an authority signer to `attest_boot` |
+| Held disclosure messages | `Hub._absolute_holds` (memory) | A bare core keeps held messages in memory only; the log records each hold's id, intent, audience and hash, not the message (owner decision D10) | No | The product saves hub state across restarts (listing-assistants does) |
+| before-turn | `dispatcher/pillars.py` | Writes the pillar's questions and recent reflections to the log; nothing answers them | The questions are on the log | A model step that answers them |
+| open-mind on the hub | `dispatcher/analysis.py` | Compares two strings the hub writes from templates, so the score measures that wording, not reasoning | No | Feed real reasoning text into the reflection artifacts |
+| sleep-marks on transfer | `dispatcher/territory.py`, `pillars.restore_sleepmark` | The outgoing mark is logged on the receiving hub; nothing is restored from it | The mark is on the log | A restore step that reads it back into the receiving hub |
+| Territories | `dispatcher/territory.py` | Experimental (owner decision D6): no nonce or expiry on a transfer; holds, dedupe ids and loop counts stay with the sender; the sender's queue items stay after release | Limits listed in the module docstring and pinned by `tests/test_territory_limits.py` | The fixes listed under D6, when a second office exists |
+| Demo spokes | `demo/listing_demo_spokes.py` | Listing-vertical spokes for the P11 demo and tests: deterministic in-process handlers, not the product's agents. Spoke03's nurture handler deliberately sends no thought trace, so the taint gate has something to catch | Their location (`demo/`) and module docstring | An identity's own agents (listing-assistants has 20) |
+
+## B. Fixed values in place for testing and operation
+
+| Value | Where | Status | Notes |
 |---|---|---|---|
-| `loop_threshold = 20` | `dispatcher/hub.py` | **RATIFIED as deliberate placeholder (owner, 2026-07-17)** | No empirical basis existed for a better number; revisit after production traffic. |
-| MANNERS `N = 10` | `dispatcher/hub.py` | **RATIFIED as deliberate placeholder (owner, 2026-07-17)** | Same: deliberate, revisit with real data. |
-| Twilio credentials | `dispatcher/notifier.py` (env vars) | **PLACEHOLDER - declared** | Real implementation; placeholder creds fail with a genuine 401, never a fake success. |
-| SMS destination | `dispatcher/notifier.py` (+1-555-555-0100) | **PLACEHOLDER - declared** | NANP fiction block; replace at deployment. |
-| `config/authority_signers.json` | this repo | **UNRATIFIED TEMPLATE - fails closed** | Loader refuses to arm on UNRATIFIED status, zero entries, missing mfa_required, or placeholder dates. Identity repos ship their own ratified versions. |
-| `priority.json` absent-file behavior | `dispatcher/loader.py` | **FIXED - FAIL CLOSED (owner decision C1, 2026-07-18)** | Absent priority table now refuses to load with a named error; regression test in tests/test_day3.py. Propagated to all vendored cores same day. |
+| `loop_threshold = 20` | `Hub(loop_threshold=20)` | **RATIFIED as deliberate placeholder (owner, 2026-07-17)** | No empirical basis existed; revisit with after-action data |
+| MANNERS `N = 10` | comments in `dispatcher/hub.py` only | **RATIFIED (2026-07-17), NOT IMPLEMENTED (D7, 2026-10-14)** | See section A |
+| `DEFAULT_TO_NUMBER = "+15555550100"` | `dispatcher/notifier.py` | **PLACEHOLDER** | NANP fiction range, never routes; set `TWILIO_TO_NUMBER` |
+| `TWILIO_FROM_NUMBER` default `+15555550101` | `dispatcher/notifier.py` | **PLACEHOLDER** | Set the env var to the account's sending number |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` defaults `PLACEHOLDER_...` | `dispatcher/notifier.py` | **PLACEHOLDER - nothing is sent while either is in place** | Env vars |
+| `TWILIO_WHATSAPP_FROM` default `whatsapp:+14155238886` | `dispatcher/notifier.py` | **PLACEHOLDER** | Twilio's shared WhatsApp sandbox number; replace with the account's approved sender |
+| `TWILIO_WHATSAPP_TO` default `whatsapp:+15555550100` | `dispatcher/notifier.py` | **PLACEHOLDER** | Env var |
+| SMS length cap 320 characters; HTTP timeout 5 s | `dispatcher/notifier.py` | Set in code | The text carries queue and context only, never free text |
+| `JEV_ENDPOINT_URL` default `https://api.typesafe.ai/v1/decisions` | `dispatcher/hub.py` | Default, only reported at boot | The core never calls it |
+| `SUPPORT_PATH = "support/engage-financial-capability"` | `dispatcher/absolute_signal.py`, quoted in `docs/FINANCIAL_CAPABILITY.md` | **PLACEHOLDER - names a path that exists in no repo** | It is part of the rebuttal text a person reads; replace with the real engagement route |
+| `AuditLog.LOCK_WAIT_S = 30.0` | `dispatcher/core.py` | Set in code | How long a writer waits for another process's lock before `AuditLogBusy`; retries every 0.02 s |
+| `drift_threshold = 0.4` | `dispatcher/analysis.py` | Default argument | Above it a reflection or spoke trace is flagged |
+| `last_n = 3` | `pillars.before_turn_check` | Default argument | Reflections read at turn entry |
+| Watchdog gap = 2 x cadence | `dispatcher/runs.py` | Set in code | Cadence itself has no default; the caller sets it |
+| Reason text cap 500 characters; error text cap 300 | `dispatcher/hub.py` | Set in code | Keeps log lines bounded |
+| `AUDIENCE_DEFAULT = "counterparty"` | `dispatcher/core.py` | Doctrine default | An envelope with no audience is treated as gated |
+| `NOTIFY_DELIVERED = {"sent", "delivered", "shown"}` | `dispatcher/hub.py` | Set in code | Only these notifier statuses count as a person notified |
+| Test credentials `ACtest` / `test-token` | `tests/` (monkeypatched) | Tests only | Never read outside the test run |
+| `tests/routes_fixture.json` | `tests/` | Tests only | The fixture track used when no identity is present |
 
----
-
-## Core doctrine constants (not tunable)
+## C. Doctrine constants (not tunable)
 
 - **Enforcement order on authority intents:** crypto signature ->
-  registry identity -> IdP session liveness -> hash-chained signer stamp.
+  registry identity -> hash-chained signer stamp. IdP session liveness
+  sits between the last two in the doctrine; the core checks that the
+  stamp carries a session reference and leaves validating it to the
+  identity's IdP adapter (section A).
+- **Signed intents:** the core requires a signature for `config.update`
+  and any `.authority` intent; each identity declares the rest in its
+  `routes.json` `signed_intents` (owner decision D2, 2026-10-14).
 - **Reconciliation tolerance:** $0.00, permeating every identity
   blueprint (owner decision 2026-07-18). The core provides the lanes;
   identities provide the books.
 - **Fail-closed everywhere:** absence of the expected artifact means
-  human review, never silent-admit.
+  human review, never silent-admit. `priority.json` absent: the loader
+  refuses with a named error (owner decision C1, 2026-07-18).
 - **Audit chain:** SHA-256 prev/entry linkage from GENESIS;
-  `verify_chain()` names tamper, deletion, or reorder by line number.
+  `verify_chain()` names tamper, deletion or reorder by entry number,
+  and a damaged or cut-off line stops the log from opening, naming the
+  first break.
 
 Identity-specific knobs live in each identity repo's
-`docs/TUNING_MANUAL.md` - the manuals shipped 2026-07-18 across
-listing, medbilling, claim, reservation, freight, enrollment, and hr.
+`docs/TUNING_MANUAL.md`.

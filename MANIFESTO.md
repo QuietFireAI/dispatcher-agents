@@ -162,6 +162,8 @@ The AI industry has invested enormously in better training, better alignment, be
 
 This stack is that mechanism. Applied unconditionally. To every turn. Every response. Every session.
 
+(That is the specification. In the dispatcher runtime as built, two of the gates - the exit self-check and the second opinion - run only when a reviewer model is configured; without one they say so on the log. See the README's table of what runs where.)
+
 The primitive this enables: **agents that are accountable to their own reasoning**, not just their outputs. That is a different category of agent from anything that ships today without this stack.
 
 ---
@@ -187,7 +189,7 @@ It is not a prerequisite. The six cognitive tools work without it. When your dep
 
 ## Status
 
-**v0.1 -- June 2026**
+**Manifesto v0.1 -- June 2026** (the text of the founding session; the dispatcher runtime is at v1.2.0, see the README)
 
 Built, documented, and pushed to GitHub in a single session.
 

@@ -10,7 +10,7 @@ Any change that adds or strengthens a claim about what these tools do or what ef
 
 - Open an issue before large changes so direction can be agreed first.
 - Keep PRs focused: one concern per PR.
-- For code: Python 3.9+, standard library preferred (the stack ships with zero required dependencies where possible). Include or update tests where they exist.
+- For code: Python 3.10+ (pyproject.toml), standard library preferred (the stack ships with zero required dependencies where possible). Include or update tests where they exist.
 - For docs: claims must match their evidence class. Replications, negative results, and falsifications are welcome contributions -- a documented failure of one of this stack's hypotheses is treated as a first-class contribution, not an attack.
 
 ## Reporting findings
@@ -19,4 +19,4 @@ If you run one of the stack's preregistered experiments (see the findings/ direc
 
 ## License
 
-By contributing, you agree your contributions are licensed under the MIT License.
+By contributing, you agree your contributions are licensed under the terms in [LICENSE](./LICENSE).

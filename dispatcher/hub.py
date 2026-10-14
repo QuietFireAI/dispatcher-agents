@@ -97,8 +97,8 @@ class Hub:
         # at ratification (no real production traffic yet to measure a
         # normal repeat-count against), and none was invented to justify it.
         # Revisit once real after-action data exists; until then this is a
-        # decided value, not an open question. Same discipline as MANNERS
-        # N=10, ratified the same day for the same reason.
+        # decided value, not an open question. (MANNERS N=10 was ratified
+        # the same day but is NOT IMPLEMENTED - see manners_reinjection.)
         self.routes = routes
         self.audit = audit
         self.verify_sig = signature_verifier or (lambda env: False)
@@ -117,6 +117,12 @@ class Hub:
             self.audit.append("selfcheck.unarmed",
                               {"scope": "boot", "reason": "no reviewer model "
                                "configured - exit gate off, declared not silent"})
+        if human_notifier is None:
+            # 2026-10-14: the one unarmed mode that used to be silent - an
+            # escalation was raised and nothing said no person could be told.
+            self.audit.append("notifier.unarmed",
+                              {"scope": "boot", "reason": "no human_notifier "
+                               "configured - escalations reach no person, declared not silent"})
         if crosspol_models is None:
             self.audit.append("splitvantage.unarmed",
                               {"scope": "boot", "reason": "no reviewer pair "
@@ -245,11 +251,15 @@ class Hub:
     MANNERS_TRIGGERS = ("phase_gate", "post_compaction", "turn_backstop")
 
     def manners_reinjection(self, trigger: str, position: str = "") -> None:
-        """MANNERS.md anti-fade mechanism, instrumented: phase_gate and
-        post_compaction are CONSTANTS; turn_backstop is the N=10 backstop,
-        RATIFIED (owner, 2026-07-17) as a deliberate placeholder pending
-        real fade-rate data. Counts and positions feed after-action
-        fade-tracking."""
+        """Records a MANNERS.md re-injection that the caller reports; it
+        re-injects nothing itself. The trigger names are fixed:
+        phase_gate, post_compaction, turn_backstop. Counts and positions
+        feed the KPIs and the after-action report.
+
+        NOT IMPLEMENTED (owner decision D7, 2026-10-14): the N=10 turn
+        backstop ratified 2026-07-17. Nothing in the core counts turns or
+        fires turn_backstop; a caller has to. A deterministic swarm has no
+        turn loop for it to count."""
         if trigger not in self.MANNERS_TRIGGERS:
             raise ValueError(f"unknown manners trigger {trigger!r}; "
                              f"constants are {self.MANNERS_TRIGGERS}")

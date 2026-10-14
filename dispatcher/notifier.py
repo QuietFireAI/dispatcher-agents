@@ -7,12 +7,12 @@ never route to a real phone, and is trivially greppable/replaceable.
 Swap TWILIO_TO_NUMBER (env var or the constant below) for the real
 on-call number when ready.
 
-This is a real, working implementation, not a stub: the message
-formatting is real, and send_sms_via_twilio() makes an actual HTTPS POST
-to Twilio's real endpoint. Until real TWILIO_ACCOUNT_SID/AUTH_TOKEN
-credentials replace the placeholders, calls will fail with a 401 from
-Twilio itself - that's expected, and is itself proof the wiring is
-correct (a malformed request or bad hostname would fail differently).
+send_sms_via_twilio() makes a real HTTPS POST to Twilio's endpoint once
+real TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN are set. While either is still
+a placeholder nothing is posted: the call returns "failed" with
+"Twilio not configured", and the hub records human.notify_failed
+(2026-10-14; before, every escalation posted with the placeholders and got
+a 401). docs/TUNING_MANUAL.md lists every placeholder here.
 """
 from __future__ import annotations
 
@@ -68,10 +68,10 @@ def _not_configured(channel: str | None = None) -> dict:
 
 def send_sms_via_twilio(body: str, to_number: str | None = None,
                         timeout: float = 5.0) -> dict:
-    """Real Twilio REST API call - POSTs to the actual endpoint. Fails
-    with a 401 until real credentials replace the placeholders above;
-    that failure mode is expected and correct, not swallowed. With the
-    placeholders still in place nothing is posted at all (2026-10-14)."""
+    """Real Twilio REST API call - POSTs to the actual endpoint. With the
+    placeholder credentials still in place nothing is posted (2026-10-14);
+    with real ones, any error (401, network) comes back as "failed", never
+    swallowed."""
     if not twilio_configured():
         return _not_configured()
     to_number = to_number or TWILIO_TO_NUMBER

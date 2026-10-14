@@ -25,14 +25,18 @@ Enterprise extension (referenced, not required): [TelsonBase](https://github.com
   source of every KPI and after-action report.
 - **Detection tier** - the six pillars, each imported from its own
   package and bound to a named runtime seam (dispatcher/pillars.py):
-  before-turn at turn entry (hub re-reads its own recent reflections and
-  answers the pillar's check questions, audited); open-mind's Comparator
-  on every hub reasoning-vs-action artifact; agent-open-mind's taint gate
+  before-turn at turn entry (the hub writes the pillar's check questions to
+  the log with its own recent reflections; nothing answers them yet);
+  open-mind's Comparator on every hub reasoning-vs-action artifact (both
+  sides are template text the hub writes itself, so the score measures that
+  wording, not reasoning); agent-open-mind's taint gate
   at spoke-trace ingestion (the pillar function IS the gate - absent
   thought = tainted, never silently admitted); pre-response-selfcheck as
   the exit gate on outbound text (FAIL verdict holds the envelope in
   clarification); sleep-marks riding every territory transfer (the
-  outgoing crew's reasoning state restores on the receiving hub);
+  outgoing hub's mark is captured and logged on the receiving hub; nothing
+  in the receiving hub is restored from it, and territories are
+  experimental);
   splitvantage as the second-opinion diff on drift-flagged decisions.
   Two gates (selfcheck, splitvantage) need reviewer models - deployment
   config; UNARMED IS AUDITED, never silent. Every binding has a test.
@@ -49,8 +53,39 @@ authority signatures (covering the signer stamp), boot attestation (hash manifes
 priority classes with live-hold siding, identity side-load loader, KPI
 computation from the log only, after-action generation per schema. Tests are
 doctrine as executable assertions, run against a real 52-route vertical
-track - see README-BUILD.md for the claim-to-test map and EVIDENCE-runtime.md
-for the evidence classes.
+track - EVIDENCE.md classifies every claim; README-BUILD.md is the dated
+build diary.
+
+Three things to know about the runtime as it stands:
+- **Heartbeat** is partial: the Watchdog observes heartbeat events and names
+  gaps, but the hub emits none on its own; a deployment has to call
+  `heartbeat()` on a schedule.
+- **Held outbound messages** (the absolute-signal gate) live in the hub's
+  memory in a bare core. The log records each hold's id, intent, audience
+  and hash, not the message; a product that saves hub state across
+  restarts (listing-assistants does) keeps them.
+- **Territories** (hub-to-hub handoff) are experimental; their known limits
+  are listed in `dispatcher/territory.py` and pinned by tests.
+
+### What runs in listing-assistants today
+
+This core is a library; listing-assistants, the one product built on it,
+uses part of it. Checked against listing-assistants' code on 2026-10-14:
+
+| Part | In listing-assistants |
+|---|---|
+| Hub: closed track, signatures, audit log and its lock, disclosure gate, notifications, decline | Runs |
+| before-turn (turn entry) | Runs when the swarm is built (`on_turn_start`) |
+| agent-open-mind taint gate | Runs on every agent's thought trace |
+| pre-response-selfcheck exit gate | Runs unarmed: no reviewer model is configured; it says so on the log |
+| Signer registry (who signed) | Not armed; the crypto signature is checked, the login binding is off and declared |
+| splitvantage second opinion | Off: no reviewer pair configured; declared at boot |
+| open-mind analysis, KPIs, the core after-action report | Not called (listing writes its own end-of-day report) |
+| Boot attestation, identity loader, priority and siding, heartbeat, playbook-run KPIs | Not called |
+| Territories, sleep-marks | Not used |
+
+Boot attestation is the cheapest of these to wire in next (owner decision D5,
+2026-10-14).
 
 ## Verticals (identity side-loads)
 
@@ -65,7 +100,7 @@ git clone https://github.com/QuietFireAI/dispatcher-agents
 cd dispatcher-agents
 pip install -e ".[pillars,crypto,dev]"              # routing core is zero-dep; signing needs crypto (Ed25519)
 git clone https://github.com/QuietFireAI/listing-assistants ../listing-assistants
-IDENTITY_DIR=../listing-assistants python3 -m pytest tests/   # 344 tests vs the real 52-route track
+IDENTITY_DIR=../listing-assistants python3 -m pytest tests/   # 355 tests vs the real 52-route track
 IDENTITY_DIR=../listing-assistants python3 demo/run_p11_demo.py   # real spokes chain 11 envelopes from 2 signals
 
 # Identity-gated tests target the repo bundled at IDENTITY_DIR (default: a fixture track); point IDENTITY_DIR at listing-assistants for the real 52-route run.
@@ -82,9 +117,15 @@ This is the hub: the manifesto, the claims ledger, and the findings.
 
 ## Status
 
-v0.4, July 2026. Hash-chained audit log with external anchor (anchor/verify_anchor - wholesale log regeneration is now detectable), login-based signer enforcement with temporal effective-date checks on all `.authority` lanes, CI on every push (103-test suite). All six pillars exist as code with reviewed documentation,
-and the dispatcher runtime exists with a green doctrine-test suite against a
-real vertical track. The stack's quantitative claims are classified in
+v1.2.0, October 2026. Hash-chained audit log with external anchor, an
+operating-system lock so processes take turns with it, and a named error
+(never a crash) for a damaged or cut-off line, with a repair a person runs;
+notifications recorded as delivered only when delivered; login-based signer
+enforcement with effective-date checks; signed intents declared by each
+identity. CI on every push runs the suite with the listing identity on Linux
+(Python 3.10, 3.12, 3.13) and Windows, and a full mutation sweep of the core
+is documented in [findings/](./findings/MUTATION_SWEEP_2026-10-13.md). All
+six pillars exist as code with reviewed documentation. The stack's quantitative claims are classified in
 EVIDENCE.md; highest-priority open items are the A/B validation of the
 [context-load finding](./findings/FINDING_context_load_replaces_reconstruction.md)
 and the tuple-enforcement A/B (HYPOTHESIS class, protocol in the runtime's
