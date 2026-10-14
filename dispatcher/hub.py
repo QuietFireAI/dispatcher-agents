@@ -113,6 +113,10 @@ class Hub:
         # crypto signature still required, WHO-signed binding is off and
         # says so. It never silently defaults.
         self.signer_registry = signer_registry
+        # The first line every hub writes: the sequence KPI reads it as the
+        # point where a hub started (2026-10-14, after the second review:
+        # the KPI had used the JEV declaration as that marker).
+        self.audit.append("hub.boot", {"routes_version": routes.version})
         if selfcheck_model is None:
             self.audit.append("selfcheck.unarmed",
                               {"scope": "boot", "reason": "no reviewer model "

@@ -61,3 +61,35 @@ def test_a_placeholder_destination_sends_nothing(monkeypatch):
     assert n.is_fictional_number("+12025550100")             # the block is reserved in every area code
     assert not n.is_fictional_number("+15555550200") and not n.is_fictional_number("+12025550000")
     assert not n.is_fictional_number("+5555550100")       # not an 11-digit +1 number
+
+
+def test_a_number_without_the_country_code_and_a_placeholder_sender_send_nothing(monkeypatch):
+    # 2026-10-14 second review
+    calls = []
+    monkeypatch.setattr(n, "TWILIO_ACCOUNT_SID", "ACreal")
+    monkeypatch.setattr(n, "TWILIO_AUTH_TOKEN", "real-token")
+    monkeypatch.setattr(n.urllib.request, "urlopen", lambda *a, **k: calls.append(a))
+    assert n.is_fictional_number("5555550100") and not n.is_fictional_number("2025550000")
+    assert "is a placeholder" in n.send_sms_via_twilio("x", to_number="5555550100")["error"]
+    monkeypatch.setattr(n, "TWILIO_FROM_NUMBER", "+15555550101")       # the shipped sender
+    r = n.send_sms_via_twilio("x", to_number="+12025550000")
+    assert r["status"] == "failed" and "sending number +15555550101 is a placeholder" in r["error"]
+    r = n.send_whatsapp_via_twilio("x", to_number="whatsapp:+12025550000",
+                                   from_number="whatsapp:+15555550101")
+    assert r["status"] == "failed" and "number whatsapp:+15555550101 is a placeholder" in r["error"]
+    assert calls == []
+
+
+def test_every_hub_writes_hub_boot_first_and_the_kpi_reads_it(tmp_path):
+    import json, os
+    from dispatcher.core import AuditLog, Routes
+    from dispatcher.hub import Hub
+    fix = os.path.join(os.path.dirname(__file__), "routes_fixture.json")
+    log = str(tmp_path / "a.jsonl")
+    Hub(Routes(fix), AuditLog(log))
+    assert json.loads(open(log, encoding="utf-8").readline())["kind"] == "hub.boot"
+    p = [{"kind": "envelope.persisted", "envelope_id": f"e{i}", "ts": 0.0,
+          "client_context_id": "c", "sequence": s} for i, s in enumerate((1, 2))]
+    k = compute_kpis(p[:2] + [{"kind": "hub.boot", "ts": 0.0}]
+                     + [dict(p[0], envelope_id="e9")])
+    assert (k["sequence_gap_incidents"], k["sequence_restarts"]) == (0, 1)

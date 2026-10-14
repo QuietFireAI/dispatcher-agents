@@ -30,8 +30,11 @@ from collections import defaultdict
 
 
 NOTIFY_OUTCOMES = ("human.notified", "human.notify_failed")
-# Every Hub writes exactly one of these in __init__, so one marks a hub boot.
-BOOT_KINDS = ("jev.unarmed_fallback", "jev.key_present")
+# A hub boot: hub.boot is the first line every Hub writes (2026-10-14). Logs
+# from before it have one of the JEV declarations, also written once per boot;
+# a log with both counts the boot once (one hub writes them one line apart,
+# with nothing persisted between).
+BOOT_KINDS = ("hub.boot", "jev.unarmed_fallback", "jev.key_present")
 
 
 def pair_escalations(events: list[dict]) -> list[tuple[dict, dict | None]]:

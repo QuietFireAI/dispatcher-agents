@@ -57,7 +57,10 @@ def is_fictional_number(number: str) -> bool:
     """A NANP number in the 555-0100..0199 block, which is reserved for
     fiction in every area code (the shipped placeholders are in it). Such a
     number never reaches a phone."""
-    digits = "".join(ch for ch in (number or "") if ch.isdigit())
+    raw = (number or "").replace("whatsapp:", "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) == 10 and not raw.startswith("+"):   # written without the country code
+        digits = "1" + digits
     return len(digits) == 11 and digits[0] == "1" and digits[4:9] == "55501"
 
 
@@ -92,6 +95,9 @@ def send_sms_via_twilio(body: str, to_number: str | None = None,
     if is_fictional_number(to_number):
         return _not_configured(error=f"destination {to_number} is a placeholder "
                                      f"(555-01xx) - nothing was sent")
+    if is_fictional_number(TWILIO_FROM_NUMBER):
+        return _not_configured(error=f"sending number {TWILIO_FROM_NUMBER} is a placeholder "
+                                     f"(555-01xx); set TWILIO_FROM_NUMBER - nothing was sent")
     url = (f"https://api.twilio.com/2010-04-01/Accounts/"
           f"{TWILIO_ACCOUNT_SID}/Messages.json")
     data = urllib.parse.urlencode({
@@ -128,8 +134,9 @@ def send_whatsapp_via_twilio(body: str, to_number: str | None = None,
         return _not_configured("whatsapp")
     raw_to = to_number or TWILIO_WHATSAPP_TO
     raw_from = from_number or TWILIO_WHATSAPP_FROM
-    if is_fictional_number(raw_to):
-        return _not_configured("whatsapp", error=f"destination {raw_to} is a placeholder "
+    if is_fictional_number(raw_to) or is_fictional_number(raw_from):
+        which = raw_to if is_fictional_number(raw_to) else raw_from
+        return _not_configured("whatsapp", error=f"number {which} is a placeholder "
                                                  f"(555-01xx) - nothing was sent")
 
     formatted_to = raw_to if raw_to.startswith("whatsapp:") else f"whatsapp:{raw_to}"
