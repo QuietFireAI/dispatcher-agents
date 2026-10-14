@@ -146,6 +146,6 @@ Any new claim added to any README in this stack must be added to this ledger fir
 | The test counts the docs state (README, SKILL.md, PILLAR_TESTING_MANUAL.md) match what pytest collects, and the stated skip count is what actually skips with no identity (2026-10-14) | **MEASURED** | tests/test_doc_counts.py (2) |
 | A hub built with no human notifier, or no signature verifier, says so at boot (notifier.unarmed, verifier.unarmed); neither declared anything before. docs/TUNING_MANUAL.md lists the stand-ins and placeholders in the core (2026-10-14) | **MEASURED** (the declarations) | tests/test_notifier_unarmed.py (3) |
 | listing-assistants records the exact core commit its 16 vendored files came from (CORE_PIN.json) and its CI checks the files against that commit (owner decision D1, 2026-10-14) | **MEASURED** | listing-assistants tests_listing/test_core_pin.py and its core-parity CI job |
-| The same CI job checks, on main and on pull requests into main, that the pinned commit is on core main | **DESIGN CLAIM** until it has run on a merge | listing-assistants .github/workflows/ci.yml |
+| The same CI job checks, on main and on pull requests into main, that the pinned commit is on core main | **MEASURED** | listing-assistants .github/workflows/ci.yml; first runs: pull request #2 (run 38590336162) and the push of its merge a41c325 to main (run 38591543513), both "pinned core is on core main" (2026-10-14) |
 
 Not claimed for the runtime: production readiness; real-spoke latency; conduct-level efficacy of manners; licensed legal review of vertical content.
