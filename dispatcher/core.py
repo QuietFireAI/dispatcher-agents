@@ -80,6 +80,16 @@ class Routes:
         self.version = data.get("version", "?")
         self.entries = [(r["intent"], set(r["senders"]), set(r["receivers"]))
                         for r in data["routes"]]
+        # Intents the identity requires a verified human signature on, beyond
+        # the core's own (owner decision D2, 2026-10-14). Each must be an
+        # intent on this track: a misspelt name would otherwise leave the real
+        # intent unsigned without anyone noticing.
+        self.signed_intents = frozenset(data.get("signed_intents", []))
+        on_track = {i for i, _, _ in self.entries}
+        unknown = sorted(self.signed_intents - on_track)
+        if unknown:
+            raise ValueError(f"{path}: signed_intents names {unknown}, which "
+                             f"{'is' if len(unknown) == 1 else 'are'} not on the track")
         # Audience metadata rides alongside, keyed by intent, and only for
         # routes that actually target `external`. Keeping it in a separate map
         # leaves entries/matches/tuple_legal byte-for-byte unchanged so no

@@ -18,6 +18,11 @@ PKG = os.path.join(os.path.dirname(__file__), "..", "dispatcher")
 LISTING = os.path.abspath(os.environ.get("IDENTITY_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "listing-assistants")))  # real identity when present as a sibling clone; identity-gated tests skip cleanly otherwise
 
 
+# The listing demo spokes live in demo/ since 2026-10-14 (owner decision D2:
+# no vertical's agents inside the core package).
+DEMO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "demo")
+
+
 def make_hub(tmp_path, verifier=None):
     hub = Hub(Routes(FIX), AuditLog(str(tmp_path / "audit.jsonl")), verifier)
     hub.register("02", lambda env: None)
@@ -387,7 +392,8 @@ def test_signed_boot_manifest_with_manners_hash(tmp_path):
 
 # ---------------------------------------------- Day 6: real spokes, chain demo
 def test_real_spokes_chain_hot_and_warm_from_single_signals(tmp_path):
-    from dispatcher.spokes import (Spoke01LeadCapture, Spoke02Qualification,
+    sys.path.insert(0, DEMO)
+    from listing_demo_spokes import (Spoke01LeadCapture, Spoke02Qualification,
                                    Spoke03Nurture, Spoke14CRM)
     from dispatcher.analysis import score_spoke_traces
     notified = []
@@ -418,7 +424,8 @@ def test_real_spokes_chain_hot_and_warm_from_single_signals(tmp_path):
 
 
 def test_consent_gate_holds_without_recorded_consent(tmp_path):
-    from dispatcher.spokes import Spoke01LeadCapture, Spoke14CRM
+    sys.path.insert(0, DEMO)
+    from listing_demo_spokes import Spoke01LeadCapture, Spoke14CRM
     hub = make_hub(tmp_path)
     Spoke14CRM(hub); cap = Spoke01LeadCapture(hub)
     hub.send(env(frm="20", to="01", intent="lead.signal", ctx="lead-x",

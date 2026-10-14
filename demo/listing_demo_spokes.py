@@ -1,5 +1,9 @@
 """Real spokes for the listing vertical - no no-op lambdas.
 
+Demo code, not core: moved from dispatcher/spokes.py to demo/ on 2026-10-14
+(owner decision D2) so the core package carries no vertical's agents. The
+P11 demo and its tests use these; listing-assistants has its own 20 agents.
+
 Each spoke does deterministic real work on the payload, submits its OWN
 thought trace (agent-open-mind's ingest is part of the spoke contract, not
 the script's), and reacts by sending follow-on envelopes over the hub - 
@@ -12,7 +16,7 @@ is supposed to catch it, and the test asserts that it does.
 """
 from __future__ import annotations
 
-from .core import Envelope
+from dispatcher.core import Envelope
 
 
 def _env(frm, to, intent, ctx, payload):

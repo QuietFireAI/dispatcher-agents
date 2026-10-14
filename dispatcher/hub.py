@@ -37,7 +37,11 @@ from typing import Callable, Optional
 from .core import Envelope, Routes, AuditLog, AUDIENCE_GATED, AUDIENCE_DEFAULT
 from .absolute_signal import rebuttal
 
-AUTHORITY_INTENTS = {"listing.change.authorized", "config.update"}
+# The core's own signed intents. An identity declares any others in its
+# routes.json ("signed_intents"); the hub adds those (owner decision D2,
+# 2026-10-14 - the core used to hard-code the listing identity's
+# listing.change.authorized here).
+AUTHORITY_INTENTS = {"config.update"}
 
 # A notifier result whose status is one of these means a person was reached
 # (a page was accepted for delivery, or the alert was put on a screen).
@@ -48,14 +52,16 @@ AUTHORITY_INTENTS = {"listing.change.authorized", "config.update"}
 NOTIFY_DELIVERED = {"sent", "delivered", "shown"}
 
 
-def is_authority(intent: str) -> bool:
-    """Authority classification for the enforcement gate. Identity modules
-    across the stack name signed-human lanes with the `.authority` suffix
-    (payment.authority, ratecon.authority, comp.authority, ...); the static
-    set keeps config.update and the original listing intent. A hardcoded
-    set alone was the defect: identity authority intents sailed past the
-    signature gate unchecked."""
-    return intent.endswith(".authority") or intent in AUTHORITY_INTENTS
+def is_authority(intent: str, declared=frozenset()) -> bool:
+    """Authority classification for the enforcement gate: an intent that
+    must carry a verified signature. Three sources: the `.authority` suffix
+    (payment.authority, ratecon.authority, comp.authority, ...), the core's
+    own AUTHORITY_INTENTS (config.update), and `declared` - the signed
+    intents the identity names in its routes.json (Routes.signed_intents),
+    which the hub passes. A hardcoded set alone was the original defect:
+    identity authority intents sailed past the signature gate unchecked."""
+    return (intent.endswith(".authority") or intent in AUTHORITY_INTENTS
+            or intent in declared)
 
 
 def _plain(v):
@@ -499,7 +505,7 @@ class Hub:
             if errs:
                 return self._reject(env, f"schema: {errs}")
             # 2. authority signature - the signature, not the sender field, is trust
-            if is_authority(env.intent):
+            if is_authority(env.intent, self.routes.signed_intents):
                 if not self.verify_sig(env):
                     self.queue_and_notify("integrity.violation", env.to_record())
                     self.audit.append("integrity.violation",

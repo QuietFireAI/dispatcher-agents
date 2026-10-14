@@ -1,6 +1,9 @@
 {
  "version": "0.16",
  "vertical": "real-estate-listing-agent",
+ "signed_intents": [
+  "listing.change.authorized"
+ ],
  "routes": [
   {
    "intent": "lead.captured",

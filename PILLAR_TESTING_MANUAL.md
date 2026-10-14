@@ -107,8 +107,10 @@ keypair and keep the private key OFF the machine that runs spokes -
       open('owner.key','wb').write(s.private_key_bytes()); \
       open('owner.pub','wb').write(s.public_key_bytes())"
 
-Hub boots with the verifier only (public key). Every config.update and
-listing.change.authorized must be signed with owner.key or it is rejected
+Hub boots with the verifier only (public key). Every config.update, every
+`.authority` intent, and every intent the identity lists under
+"signed_intents" in its routes.json (listing-assistants lists
+listing.change.authorized) must be signed with owner.key or it is rejected
 and flagged - the baseline run already proved that path with a signed
 config.update carrying {"spec_owner": "human"}. Sign the boot manifest with
 the same key (attest_boot(..., signer=...)) so WHAT is running is bound to
