@@ -121,9 +121,12 @@ class Routes:
 
     def tuple_legal(self, frm: str, intent: str, to: str) -> bool:
         for s, r in self.matches(intent):
-            frm_ok = frm in s or "any" in s or (frm == "human" and "human" in s)
-            to_ok = (to in r or "any" in r
-                     or (to in SPECIAL and to in r))
+            # 2026-10-13: two further clauses, (frm == "human" and "human" in s)
+            # and (to in SPECIAL and to in r), were removed: each implied the
+            # membership test before it, so neither could change the answer
+            # (checked over every receiver set; findings/MUTATION_SWEEP_2026-10-13.md)
+            frm_ok = frm in s or "any" in s
+            to_ok = to in r or "any" in r
             if frm_ok and to_ok:
                 return True
         return False
@@ -409,12 +412,21 @@ class AuditLog:
         for n, (i, raw) in enumerate(lines):
             e = _parse(raw)
             if e is None:
-                last = n == len(lines) - 1
-                raise AuditLogDamaged(self.path, i, "not a readable entry",
-                                      torn_tail=last and not ends_nl)
+                raise self._first_problem()
             tip = e.get("entry_hash", tip)
         self._needs_newline = bool(lines) and not ends_nl
         return tip
+
+    def _first_problem(self) -> "AuditLogDamaged":
+        """The error for the FIRST break in the file, not merely the first
+        unreadable line (recheck before merge, 2026-10-13: a log edited at
+        line 2 and cut off at its end was reported as "cut off, run the
+        repair", and the repair then refused because of line 2). A cut-off
+        last write is reported as one only when every line before it
+        verifies - exactly when the repair will accept it."""
+        chain = self._verify_chain()
+        return AuditLogDamaged(self.path, chain["break_at"], chain["reason"],
+                               torn_tail=chain["torn_tail"])
 
     @classmethod
     def check_file(cls, path: str) -> dict:
@@ -627,18 +639,19 @@ class AuditLog:
         for k, (i, raw) in enumerate(lines):
             e = _parse(raw)
             if e is None:
-                return {"ok": False, "entries": i, "break_at": i,
+                return {"ok": False, "entries": k + 1, "break_at": i,
                         "reason": "not a readable entry",
                         "torn_tail": k == len(lines) - 1 and not ends_nl}
             body = {key: v for key, v in e.items()
                     if key not in ("prev_hash", "entry_hash")}
             if e.get("prev_hash") != prev or \
                e.get("entry_hash") != self._entry_hash(body, prev):
-                return {"ok": False, "entries": i, "break_at": i,
+                return {"ok": False, "entries": k + 1, "break_at": i,
                         "reason": "does not link to the entry before it "
                                   "(edited, deleted or reordered)",
                         "torn_tail": False}
-            prev = e["entry_hash"]; n = i
+            prev = e["entry_hash"]
+            n = k + 1         # entries, not line numbers: blank lines are skipped
         return {"ok": True, "entries": n, "break_at": None}
 
     def read(self) -> list[dict]:
@@ -655,7 +668,6 @@ class AuditLog:
         for k, (i, raw) in enumerate(lines):
             e = _parse(raw)
             if e is None:
-                raise AuditLogDamaged(self.path, i, "not a readable entry",
-                                      torn_tail=k == len(lines) - 1 and not ends_nl)
+                raise self._first_problem()
             out.append(e)
         return out

@@ -52,9 +52,11 @@ operating-system lock for the log. After those changes:
 | 9. Whole sweep | lock added, 324 tests | 930 | 896 + 1 timeout | 33: the 3 equivalents and 30 in the new lock code |
 | 10. Whole sweep | 008fb8a, 330 tests | 921 | 908 + 1 timeout | 12: 3 equivalent, 1 that only changes CPU use, 8 on Windows-only lines |
 | 11. Whole sweep | after the third review, 338 tests | 942 | 924 + 1 timeout | 17: the 12 above and 5 in the new lock code |
-| 12. Those 17 again | this commit, 339 tests (tests added, no core code changed since run 11) | 17 | 5 | 12: 3 equivalent, 1 CPU-only, 8 on Windows-only lines |
+| 12. Those 17 again | a0006ac, 339 tests (tests added, no core code changed since run 11) | 17 | 5 | 12: 3 equivalent, 1 CPU-only, 8 on Windows-only lines |
+| 13. Whole sweep | after the recheck before merge, 341 tests | 931 | 917 + 1 timeout | 13: the 11 below and 2 in the new code |
+| 14. Those 13 again | this commit, 344 tests (tests added, no core code changed since run 13) | 13 | 2 | 11: 2 equivalent, 1 CPU-only, 8 on Windows-only lines |
 
-Run 9 found 30 survivors in the lock code: the reader not tested to wait for the lock, the file handle not tested to be closed, the owner kept on repair, mixed old and new pairing, a nesting counter that the outer reset made meaningless (now a flag), redundant return values and a redundant POSIX unlock (removed). Windows-only lines cannot run on Linux; see below. Run 10 confirmed 008fb8a. A third review found that reads needed write access to the log's folder (now: shared lock for reads, read-only fallback), that a busy lock was not handled in listing-assistants, and that two AuditLog instances in one process could wait on each other (now one lock state per file per process). Runs 11 and 12 are the confirmation for this commit: 942 mutants, 929 killed, 1 timeout, 12 survived.
+Run 9 found 30 survivors in the lock code: the reader not tested to wait for the lock, the file handle not tested to be closed, the owner kept on repair, mixed old and new pairing, a nesting counter that the outer reset made meaningless (now a flag), redundant return values and a redundant POSIX unlock (removed). Windows-only lines cannot run on Linux; see below. Run 10 confirmed 008fb8a. A third review found that reads needed write access to the log's folder (now: shared lock for reads, read-only fallback), that a busy lock was not handled in listing-assistants, and that two AuditLog instances in one process could wait on each other (now one lock state per file per process). Runs 11 and 12 confirmed a0006ac. A recheck before merging found that opening a log edited at line 2 and cut off at its end advised the repair, which then refused; the error now names the first break. The owner also asked for the four items left open at the gate to be fixed: the after-action report's run filter, the redundant tuple_legal clauses (removed, which removed one equivalent mutant), entry counts with blank lines, and the desk feed's style for a repair. Runs 13 and 14 are the confirmation for this commit: 931 mutants, 919 killed, 1 timeout, 11 survived.
 
 ## What the survivors showed
 
@@ -97,7 +99,7 @@ instead of truncating, so 3 remain.
 | Mutant | Why nothing changes | Evidence |
 |---|---|---|
 | `attestation.py:26` read chunk 65536 -> 65537 | A streamed SHA-256 does not depend on the chunk size | 300,000 random bytes hashed with both chunk sizes and in one call: identical |
-| `core.py` `tuple_legal`: `to in SPECIAL and to in r` -> `to not in SPECIAL and to in r` | The whole clause implies `to in r`, which is already the first test on that line, so the clause can never change the answer | Exhaustive: all 32 receiver sets over {02, human, external, queue, any} x 6 destinations give the same result with the clause, with the mutant, and with no clause at all |
+| (clause removed before merge) `core.py` `tuple_legal`: `to in SPECIAL and to in r` -> `to not in SPECIAL and to in r` | The whole clause implies `to in r`, which is already the first test on that line, so the clause can never change the answer | Exhaustive: all 32 receiver sets over {02, human, external, queue, any} x 6 destinations give the same result with the clause, with the mutant, and with no clause at all |
 | (removed with the truncate) `core.py:277` `f.flush()` -> `pass` after `truncate` | Nothing is written through that handle; truncate goes straight to the file | Size on disk read right after `truncate(3)`, before any flush: 3 |
 | `core.py` `_FileLock.__enter__` `time.sleep(0.02)` -> `pass` | Only the CPU use while waiting for another process's lock changes: the loop spins instead of sleeping, and still waits for the same deadline | The lock-wait tests pass with it; no result depends on how often the lock is retried |
 | `hub.py:64` `super().__init__(reason)` -> `pass` in `Reject` | Python's exception constructor stores the arguments before `__init__` runs, so `args` and `str()` are the same | `Reject`-shaped class with and without the call: same `args` and `str` |
@@ -112,14 +114,14 @@ unmutated Windows branch is exercised by core CI on windows-latest, where
 entries), the lock-wait and the closed-handle tests run. No mutation run
 was made on Windows.
 
-## Redundant clauses found on the way (no behaviour change, reported)
+## Redundant clauses found on the way (removed before merge)
 
-In `Routes.tuple_legal`, two clauses can never change the answer:
+In `Routes.tuple_legal`, two clauses could never change the answer:
 `(frm == "human" and "human" in s)` is covered by `frm in s`, and
-`(to in SPECIAL and to in r)` is covered by `to in r`. They were left in
-place: they are harmless, and changing route code was not needed to finish
-this step. They read as if `human` or the special destinations were treated
-differently; they are not.
+`(to in SPECIAL and to in r)` is covered by `to in r`. They read as if
+`human` or the special destinations were treated differently; they were
+not. Removed on the owner's request before the merge; the route tests and
+the exhaustive check above show the answers are unchanged.
 
 ## One unexplained test failure
 

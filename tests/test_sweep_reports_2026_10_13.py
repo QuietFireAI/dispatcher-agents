@@ -182,3 +182,13 @@ def test_manners_and_drift_counts_are_exact():
         "phase_gate": 2, "post_compaction": 0, "turn_backstop": 1}}
     assert k["drift"] == {"hub_reflections_analyzed": 3, "hub_reflections_flagged": 2,
                           "spoke_traces_scored": 2, "spoke_traces_flagged": 1}
+
+
+def test_another_runs_escalation_is_not_in_this_report():
+    log = LOG + [{"kind": "escalation.raised", "ts": 109.0, "queue": "escalation.hot_lead",
+                  "client_context_id": "ctx-OTHER"},
+                 {"kind": "human.notified", "ts": 109.5, "queue": "escalation.hot_lead",
+                  "client_context_id": "ctx-OTHER"}]
+    r = generate_report(log, "P11", "run-1", C, STEPS).splitlines()
+    assert len(section(r, "escalations")) == 3                    # this run's three only
+    assert section(r, "gates")[0] == "- hot-lead escalation gate: TRIGGERED x3 (evidence: escalation.raised on log)"

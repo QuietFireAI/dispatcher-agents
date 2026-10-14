@@ -250,14 +250,25 @@ def test_p11_demo_end_to_end(tmp_path, monkeypatch):
                     "## kpis", "## manners re-injections"):
         assert section in report                    # full AFTER_ACTION schema
     assert "TRIGGERED" in report                    # both gates fired
-    # the demo's notifier appends to a list and reports nothing, so the
-    # report says delivery is unconfirmed - no transport time is claimed
-    # (2026-10-13: it used to print a transport time for it)
+    # This report is the warm lead's run (lead-w). The hot-lead escalation
+    # belongs to lead-h, so it is not in this report (2026-10-13: the report
+    # used to list every escalation on the log as its own).
     esc = report.split("## escalations")[1].split("##")[0]
-    assert "the notifier reported nothing - delivery unconfirmed" in esc
-    assert "transport 0" not in esc and "NOT INSTRUMENTED" not in esc
-    assert "'computable': True" in report           # outcome paired from the log
+    assert esc.strip() == "- none"
+    assert "'computable': True" in report           # the full-log KPI still sees it
     assert "'not_reported': 1" in report
+    # lead-h's own report has it; the demo's notifier appends to a list and
+    # reports nothing, so delivery is unconfirmed and no transport time is claimed
+    import glob
+    from dispatcher.after_action import generate_report
+    from dispatcher.core import AuditLog
+    [audit] = [f for f in glob.glob(str(tmp_path / "aa" / "demo-audit-*.jsonl")) if "-b-" not in f]
+    hot = generate_report(AuditLog.reader(audit).read(), "P11", "hot", "lead-h", steps=[])
+    hot_esc = hot.split("## escalations")[1].split("##")[0]
+    assert ("- escalation.hot_lead: raised, the notifier reported nothing - delivery "
+            "unconfirmed, no transport time") in hot_esc
+    assert "transport 0" not in hot_esc
+
 
 
 # --------------------------------------------- loop protection + manners (Day 5)

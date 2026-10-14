@@ -151,10 +151,12 @@ def test_a_later_delivery_on_the_same_queue_does_not_cover_an_earlier_failure(tm
     hub.escalate("escalation.hot_lead", {"client_context_id": "B"})
     k = compute_kpis(hub.audit.read())["escalation_transport_time"]
     assert (k["n"], k["unnotified"], k["confirmed"], k["notify_failed"]) == (1, 1, 1, 1)
-    report = generate_report(hub.audit.read(), "P11", "r", "A", steps=[])
-    esc = report.split("## escalations")[1].split("##")[0].strip().splitlines()
-    assert esc[0] == "- escalation.hot_lead: raised, NOTIFICATION FAILED (failed) - no person was reached"
-    assert esc[1].startswith("- escalation.hot_lead: transport ")
+    def esc(ctx):
+        r = generate_report(hub.audit.read(), "P11", "r", ctx, steps=[])
+        return r.split("## escalations")[1].split("##")[0].strip().splitlines()
+    assert esc("A") == ["- escalation.hot_lead: raised, NOTIFICATION FAILED (failed) - no person was reached"]
+    [b] = esc("B")                                   # each report: its own escalation only
+    assert b.startswith("- escalation.hot_lead: transport ")
 
 
 def test_an_escalation_with_no_outcome_is_not_covered_by_the_next_ones(tmp_path):

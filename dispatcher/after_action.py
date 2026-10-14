@@ -35,11 +35,15 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
     """events: full audit log. steps: the playbook's step list as executed,
     each {step, agent, intent, envelope_id} - proof and latency are looked up
     in the log, never taken from the caller's word."""
+    # this run's events only: its client context, or an envelope of its
+    # steps. (Until 2026-10-13 every escalation.raised and notification on
+    # the log was added regardless of context, so a report listed other
+    # runs' escalations as its own.) Notifications are still paired with
+    # escalations over the whole log (kpi.pair_escalations), so an outcome
+    # recorded without this context still answers this run's escalation.
     run_events = [e for e in events
                   if e.get("client_context_id") == client_context_id
-                  or e.get("envelope_id") in {s.get("envelope_id") for s in steps}
-                  or e["kind"] in ("escalation.raised", "human.notified",
-                                   "human.notify_failed")]
+                  or e.get("envelope_id") in {s.get("envelope_id") for s in steps}]
     if not run_events:
         raise ValueError(f"no audited events for run {run_id!r} - a report "
                          f"without log evidence would be fabricated")

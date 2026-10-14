@@ -723,3 +723,48 @@ def test_a_repair_from_inside_this_processs_lock_does_not_wait_on_itself(tmp_pat
     with log.holding():
         rec = AuditLog.repair_torn_tail(p)
     assert rec["complete_entries"] == 3 and AuditLog.check_file(p)["ok"]
+
+
+# ---------------------------------------------- recheck before merge, 2026-10-13
+def test_an_earlier_break_is_named_before_a_cut_off_end(tmp_path):
+    # edited at line 2 AND cut off at the end: the first problem is line 2,
+    # and the error must not send a person to a repair that will refuse
+    p = three(tmp_path)
+    lines = raw(p).split(b"\n")
+    lines[1] = lines[1].replace(b'"n": 1', b'"n": 8')
+    open(p, "wb").write(b"\n".join(lines) + b'{"half')
+    for opener in (lambda: AuditLog(p), lambda: AuditLog.reader(p).read()):
+        with pytest.raises(AuditLogDamaged) as ei:
+            opener()
+        assert ei.value.line == 2 and ei.value.torn_tail is False
+        assert "does not link" in ei.value.reason and "repair_torn_tail" not in str(ei.value)
+    with pytest.raises(ValueError, match="chain breaks at line 2"):
+        AuditLog.repair_torn_tail(p)
+
+
+def test_entries_are_counted_not_numbered_when_the_file_has_blank_lines(tmp_path):
+    p = three(tmp_path)
+    data = raw(p)                                        # read before opening for write
+    open(p, "wb").write(b"\n\n" + data.replace(b"\n", b"\n\n"))
+    log = AuditLog.reader(p)
+    assert log.verify_chain() == {"ok": True, "entries": 3, "break_at": None}
+    assert log.anchor()["entries"] == 3
+    open(p, "ab").write(b'{"half')
+    c = AuditLog.check_file(p)
+    assert c["entries"] == 4 and c["break_at"] == raw(p).count(b"\n") + 1
+
+
+def test_a_link_break_counts_the_entries_up_to_it(tmp_path):
+    p = three(tmp_path)
+    lines = raw(p).split(b"\n")
+    lines[1] = lines[1].replace(b'"n": 1', b'"n": 6')
+    open(p, "wb").write(b"\n\n".join(lines))            # blank lines between, too
+    c = AuditLog.check_file(p)
+    assert c["entries"] == 2 and c["break_at"] == 3 and "does not link" in c["reason"]
+
+
+def test_reopening_a_clean_log_adds_no_blank_lines(tmp_path):
+    p = three(tmp_path)
+    for _ in range(3):
+        AuditLog(p).append("again", {})
+    assert b"\n\n" not in raw(p) and raw(p).count(b"\n") == 6
