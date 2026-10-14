@@ -91,5 +91,21 @@ itself except where the row says otherwise.
   and a damaged or cut-off line stops the log from opening, naming the
   first break.
 
+- **Protocol names (fixed in code, swept 2026-10-14).** Changing one changes
+  the protocol for every trade.
+
+  | Name | Where | Value |
+  |---|---|---|
+  | `CONFIDENCE` | `dispatcher/core.py` | `source_verified`, `stated_by_party`, `unknown`: the only confidence labels an envelope may carry |
+  | `SPECIAL` | `dispatcher/core.py` | `human`, `any`, `external`, `queue`: the names that are not agents. Nothing reads this set since the route check stopped using it; it documents the names |
+  | `AUDIENCE_GATED` | `dispatcher/core.py` | `public`, `counterparty`: audiences held for a signed release |
+  | `RESERVED` | `dispatcher/core.py` `AuditLog` | `ts`, `kind`, `prev_hash`, `entry_hash`. Nothing reads this name; `append()` itself overwrites those four keys in a caller's record, so the framing is the log's |
+  | `AUTHORITY_INTENTS` | `dispatcher/hub.py` | `config.update`, plus any intent ending in `.authority` and each trade's declared `signed_intents` |
+  | `MANNERS_TRIGGERS` | `dispatcher/hub.py` | `phase_gate`, `post_compaction`, `turn_backstop`: the only triggers `manners_reinjection()` records |
+  | `NOTIFY_OUTCOMES`, `BOOT_KINDS` | `dispatcher/kpi.py` | The log kinds the KPIs read for a notification outcome and for a restart |
+  | `_DEVIATION_KINDS` | `dispatcher/after_action.py` | The log kinds the after-action report counts as deviations |
+  | `SIGNAL_TEXT`, `CAPABILITY_DOC` | `dispatcher/absolute_signal.py` | The disclosure-gate signal text (single source, sha256-checked) and the doc that quotes it |
+  | Priority classes 1 to 4 | `dispatcher/loader.py` | The only classes `priority.json` may use |
+
 Identity-specific knobs live in each identity repo's
 `docs/TUNING_MANUAL.md`.

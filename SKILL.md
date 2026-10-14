@@ -25,24 +25,24 @@ truth for everything that happened.
 
 The runtime is the open credibility layer of the DispatcherAgents stack.
 An **identity** (a directory of routes, priority classes, agents, and
-playbooks — e.g. QuietFireAI/listing-assistants) turns the generic dispatcher
+playbooks - e.g. QuietFireAI/listing-assistants) turns the generic dispatcher
 into a working vertical: "dispatcher-agents wearing an identity."
 
 ## Doctrine the runtime enforces (each rule is a passing test)
 
-1. **Closed track** — only (from, intent, to) tuples present in routes.json
+1. **Closed track** - only (from, intent, to) tuples present in routes.json
    are legal. Unknown tuples do not route.
-2. **Restricted-speed holds** — unknown-intent traffic reduces to stop and
+2. **Restricted-speed holds** - unknown-intent traffic reduces to stop and
    HOLDS live in clarification with telemetry running; it resumes only on
    dispatcher direction. Never dropped.
-3. **Ack after persist AND delivery** — never before, never on failure.
+3. **Ack after persist AND delivery** - never before, never on failure.
    envelope_id idempotency with dedupe-first retry semantics.
-4. **Authority requires signature** — unsigned authority intents are
+4. **Authority requires signature** - unsigned authority intents are
    rejected and flagged as integrity violations. Boot attestation is a hash
    manifest with fail-closed verification.
-5. **Absent provenance = tainted** — a spoke result without a thinking trace
+5. **Absent provenance = tainted** - a spoke result without a thinking trace
    is flagged for human review, never scored, never silently admitted.
-6. **Unarmed is audited** — pillars that need a model callable
+6. **Unarmed is audited** - pillars that need a model callable
    (pre-response-selfcheck, splitvantage) audit their unarmed state instead
    of pretending to run.
 
@@ -57,7 +57,7 @@ into a working vertical: "dispatcher-agents wearing an identity."
 | Territory transfers | sleep-marks | sleepmark.captured / sleepmark.restored |
 | Drift-flagged decisions | splitvantage | splitvantage.review / splitvantage.unarmed |
 
-All six are imported from their pillar repos — never vendored. Repackaging
+All six are imported from their pillar repos - never vendored. Repackaging
 drift is a named defect class.
 
 ## Using this skill (any agent runtime: Claude, OpenClaw, Hermes)
@@ -136,23 +136,23 @@ tests: `IDENTITY_DIR=/path/to/listing-assistants python -m pytest tests/`.
 - Never treat an unarmed pillar as a passed check. Unarmed is a state, and
   it is in the audit log.
 - Every "done / verified / works" claim must be backed by the test suite,
-  the demo pillar counts, or the KPI gate output — quote the actual result.
+  the demo pillar counts, or the KPI gate output - quote the actual result.
 - The audit log is append-only ground truth. Answer questions about what
   happened from the audit log, not from memory of what was intended.
 
 ## Repo map
 
-- `dispatcher/core.py` — Routes (closed track) + hash-chained append-only AuditLog
-- `dispatcher/hub.py` — the hub: ack discipline, holds, sequence, pillar seams
-- `dispatcher/pillars.py` — the six pillar bindings (imports, never copies)
-- `dispatcher/analysis.py` — open-mind comparator + taint scoring over the log
-- `dispatcher/signatures.py`, `dispatcher/attestation.py` — authority crypto + boot trust
-- `dispatcher/signer_registry.py` — login-based signer enforcement (fail-closed arming)
-- `dispatcher/priority.py` — JIT run-priority (siding scheduler, pacing over braking)
-- `dispatcher/territory.py` — territory transfers carrying sleep-marks
-- `dispatcher/loader.py` — identity loading, fail-closed on missing track
-- `tools/kpi_gate.py` — invariant gate over the audit log
-- `demo/baseline_run.py`, `demo/run_p11_demo.py` — wire demos; all six pillars must fire
+- `dispatcher/core.py` - Routes (closed track) + hash-chained append-only AuditLog
+- `dispatcher/hub.py` - the hub: ack discipline, holds, sequence, pillar seams
+- `dispatcher/pillars.py` - the six pillar bindings (imports, never copies)
+- `dispatcher/analysis.py` - open-mind comparator + taint scoring over the log
+- `dispatcher/signatures.py`, `dispatcher/attestation.py` - authority crypto + boot trust
+- `dispatcher/signer_registry.py` - login-based signer enforcement (fail-closed arming)
+- `dispatcher/priority.py` - JIT run-priority (siding scheduler, pacing over braking)
+- `dispatcher/territory.py` - territory transfers carrying sleep-marks
+- `dispatcher/loader.py` - identity loading, fail-closed on missing track
+- `tools/kpi_gate.py` - invariant gate over the audit log
+- `demo/baseline_run.py`, `demo/run_p11_demo.py` - wire demos; all six pillars must fire
 
 Part of the DispatcherAgents stack by QuietFireAI. Pillars: before-turn,
 open-mind, agent-open-mind, pre-response-selfcheck, sleep-marks, splitvantage.
