@@ -82,7 +82,22 @@ free text was dropped from the message), and the channel name on a
 not-configured result. In run 16 each was killed by its own new test; a
 first attempt was killed by the counts test instead (the suite had grown
 and the docs had not), so the docs were updated and the run repeated.
-Result for the merge: 963 mutants, 951 killed, 1 timeout, 11 survived (the
+That result (963 mutants, 951 killed, 1 timeout, 11 survived) held for
+56c717d. A cold review by a separate agent then found defects in the
+Phase 2 code, the worst in the sequence KPI (it hid gaps that main
+caught); the fixes changed core.py, hub.py, kpi.py, notifier.py and
+territory.py, so the sweep was run again:
+
+| Run | Code / tests | Mutants | Killed | Survived |
+|---|---|---|---|---|
+| 17. Whole sweep | eb41951, 366 tests | 995 | 982 + 1 timeout (the same infinite-loop mutant) | 12: the 11 known and 1 in the new KPI code |
+| 18. That 1 again | 366 tests (assertions added to an existing test, no core code changed) | 1 | 1 | 0 |
+
+The one was `booted_since[ctx] = False` where a transfer lands: no test
+had a hub boot, then the context arriving by transfer, then a 1. It is
+killed by the added case in
+`test_a_return_to_1_without_a_boot_is_a_gap_and_a_transfer_counts_where_it_lands`.
+Result for the merge: 995 mutants, 983 killed, 1 timeout, 11 survived (the
 2 equivalent, 1 CPU-only and 8 Windows-only lines described below).
 
 ## What the survivors showed

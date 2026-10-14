@@ -227,6 +227,13 @@ def test_a_return_to_1_without_a_boot_is_a_gap_and_a_transfer_counts_where_it_la
                          "contexts": {"T": {"sequence_hwm": 5}}}]
                      + _persisted("T", 6))
     assert (k["sequence_gap_incidents"], k["sequence_restarts"]) == (0, 0)
+    # a boot, then the context arrives by transfer: a 1 after that is a gap,
+    # not a restart (the transfer, not the boot, set where it continues)
+    k = compute_kpis(_persisted("X", 1, 2) + boot
+                     + [{"kind": "territory.transfer.received", "ts": 0,
+                         "contexts": {"X": {"sequence_hwm": 5}}}]
+                     + _persisted("X", 1))
+    assert (k["sequence_gap_incidents"], k["sequence_restarts"]) == (1, 0)
     # a boot between entries of a context that had moved on is still a gap if not 1
     k = compute_kpis(_persisted("B", 1, 2) + boot + _persisted("B", 5))
     assert (k["sequence_gap_incidents"], k["sequence_restarts"]) == (1, 0)
