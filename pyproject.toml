@@ -21,14 +21,17 @@ requires-python = ">=3.10"
 # signing and verifying authority envelopes needs [crypto].
 # dispatcher.pillars and dispatcher.analysis import the six pillars from
 # source (never vendored). Install them with:  pip install -e ".[pillars]"
+# Pinned to exact commits (2026-10-13), the same six listing-assistants pins
+# in its requirements.txt: what CI tested is what you install. To move a
+# pillar forward: change its hash here and there, run both suites, commit.
 # This is what the test suite and the P11 demo require.
 pillars = [
-    "before-turn @ git+https://github.com/QuietFireAI/before-turn",
-    "open-mind @ git+https://github.com/QuietFireAI/open-mind",
-    "agent-open-mind @ git+https://github.com/QuietFireAI/agent-open-mind",
-    "sleep-marks @ git+https://github.com/QuietFireAI/sleep-marks",
-    "pre-response-selfcheck @ git+https://github.com/QuietFireAI/pre-response-selfcheck",
-    "splitvantage @ git+https://github.com/QuietFireAI/splitvantage",
+    "before-turn @ git+https://github.com/QuietFireAI/before-turn.git@0b18252a319a48cb540acf90e9d1508d0b2874ad",
+    "open-mind @ git+https://github.com/QuietFireAI/open-mind.git@570e1b8e4c2f141dbcd2cb3b0b9eb1f7fac63ea6",
+    "agent-open-mind @ git+https://github.com/QuietFireAI/agent-open-mind.git@9b0dc89ce923c3b767e3e4436f6966d8ede99b2a",
+    "sleep-marks @ git+https://github.com/QuietFireAI/sleep-marks.git@8aa298b98b229cbdd76f3caa917298087888f0e8",
+    "pre-response-selfcheck @ git+https://github.com/QuietFireAI/pre-response-selfcheck.git@94d6a30cdb41fd8934391114a1979b0071f9e9a0",
+    "splitvantage @ git+https://github.com/QuietFireAI/splitvantage.git@0a202d5dbbb593be5908f66ffc95ea4c6f7380d4",
 ]
 # Ed25519 authority signatures (the only signing tier since 2026-10-12).
 crypto = ["cryptography>=42"]

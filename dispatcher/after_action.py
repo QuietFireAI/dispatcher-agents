@@ -4,8 +4,9 @@ Implements AFTER_ACTION.md's template from the audit log ONLY - never from
 agent memory, never self-reported. One markdown report per run.
 
 Schema fields the runtime cannot yet populate are DECLARED, not faked:
-- manners re-injections: no manners events exist in the runtime yet
 - human response time: notification is instrumented, response is not
+(Corrected 2026-10-13: this list also named manners re-injections, which the
+report below does read from the log.)
 An unreported deviation is a fabricated report (schema's own words), so
 deviations are computed mechanically: any audited reject, hold, dead-letter,
 taint, or siding event inside the run window is a deviation, verbatim.
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 import datetime
 
-from .kpi import compute_kpis
+from .kpi import compute_kpis, pair_escalations
 
 
 def _iso(ts: float) -> str:
@@ -34,10 +35,15 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
     """events: full audit log. steps: the playbook's step list as executed,
     each {step, agent, intent, envelope_id} - proof and latency are looked up
     in the log, never taken from the caller's word."""
+    # this run's events only: its client context, or an envelope of its
+    # steps. (Until 2026-10-13 every escalation.raised and notification on
+    # the log was added regardless of context, so a report listed other
+    # runs' escalations as its own.) Notifications are still paired with
+    # escalations over the whole log (kpi.pair_escalations), so an outcome
+    # recorded without this context still answers this run's escalation.
     run_events = [e for e in events
                   if e.get("client_context_id") == client_context_id
-                  or e.get("envelope_id") in {s.get("envelope_id") for s in steps}
-                  or e["kind"] in ("escalation.raised", "human.notified")]
+                  or e.get("envelope_id") in {s.get("envelope_id") for s in steps}]
     if not run_events:
         raise ValueError(f"no audited events for run {run_id!r} - a report "
                          f"without log evidence would be fabricated")
@@ -89,17 +95,26 @@ def generate_report(events: list[dict], playbook: str, run_id: str,
         lines.append("- none on log")
 
     lines += ["", "## escalations"]
-    notif = {e.get("queue"): e["ts"] for e in run_events
-             if e["kind"] == "human.notified"}
+    # each escalation's own outcome (kpi.pair_escalations), paired over the
+    # whole log so another escalation's notification never stands in
+    outcome = {id(r): o for r, o in pair_escalations(events)}
     if esc:
         for e in esc:
             q = e.get("queue")
-            if q in notif and notif[q] >= e["ts"]:
-                lines.append(f"- {q}: transport {notif[q]-e['ts']:.4f}s; "
-                             f"human response time: NOT INSTRUMENTED")
-            else:
+            o = outcome.get(id(e))
+            if o is None:
                 lines.append(f"- {q}: raised, NO human.notified on log - "
                              f"transport unproven")
+            elif o["kind"] == "human.notify_failed":
+                why = o.get("notifier_status") or o.get("error") or "unknown"
+                lines.append(f"- {q}: raised, NOTIFICATION FAILED ({why}) - "
+                             f"no person was reached")
+            elif o.get("transport") == "not reported":
+                lines.append(f"- {q}: raised, the notifier reported nothing - "
+                             f"delivery unconfirmed, no transport time")
+            else:
+                lines.append(f"- {q}: transport {o['ts'] - e['ts']:.4f}s; "
+                             f"human response time: NOT INSTRUMENTED")
     else:
         lines.append("- none")
 

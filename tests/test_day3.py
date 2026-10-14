@@ -12,7 +12,10 @@ from dispatcher.loader import load_identity
 
 FIX = os.path.join(os.path.dirname(__file__), "routes_fixture.json")
 PKG = os.path.join(os.path.dirname(__file__), "..", "dispatcher")
-LISTING = os.environ.get("IDENTITY_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "listing-assistants"))  # real identity when present as a sibling clone; identity-gated tests skip cleanly otherwise
+# Absolute from the start (2026-10-13): the P11 test changes directory before
+# the demo reads IDENTITY_DIR, so the README's relative form
+# (IDENTITY_DIR=../listing-assistants) used to fail that one test.
+LISTING = os.path.abspath(os.environ.get("IDENTITY_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "listing-assistants")))  # real identity when present as a sibling clone; identity-gated tests skip cleanly otherwise
 
 
 def make_hub(tmp_path, verifier=None):
@@ -226,6 +229,7 @@ def test_agent_dir_without_skill_is_violation_not_skip(tmp_path):
 def test_p11_demo_end_to_end(tmp_path, monkeypatch):
     if os.path.isdir(LISTING) and load_identity(LISTING).vertical != "real-estate-listing-agent":
         pytest.skip("P11 demo is listing-pinned; generic contract test covers other identities")
+    monkeypatch.setenv("IDENTITY_DIR", LISTING)    # absolute, before the chdir
     monkeypatch.chdir(tmp_path)
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "demo"))
     import run_p11_demo
@@ -246,8 +250,25 @@ def test_p11_demo_end_to_end(tmp_path, monkeypatch):
                     "## kpis", "## manners re-injections"):
         assert section in report                    # full AFTER_ACTION schema
     assert "TRIGGERED" in report                    # both gates fired
-    assert "NOT INSTRUMENTED" in report             # declared, not faked
-    assert "'computable': True" in report           # escalation transport real
+    # This report is the warm lead's run (lead-w). The hot-lead escalation
+    # belongs to lead-h, so it is not in this report (2026-10-13: the report
+    # used to list every escalation on the log as its own).
+    esc = report.split("## escalations")[1].split("##")[0]
+    assert esc.strip() == "- none"
+    assert "'computable': True" in report           # the full-log KPI still sees it
+    assert "'not_reported': 1" in report
+    # lead-h's own report has it; the demo's notifier appends to a list and
+    # reports nothing, so delivery is unconfirmed and no transport time is claimed
+    import glob
+    from dispatcher.after_action import generate_report
+    from dispatcher.core import AuditLog
+    [audit] = [f for f in glob.glob(str(tmp_path / "aa" / "demo-audit-*.jsonl")) if "-b-" not in f]
+    hot = generate_report(AuditLog.reader(audit).read(), "P11", "hot", "lead-h", steps=[])
+    hot_esc = hot.split("## escalations")[1].split("##")[0]
+    assert ("- escalation.hot_lead: raised, the notifier reported nothing - delivery "
+            "unconfirmed, no transport time") in hot_esc
+    assert "transport 0" not in hot_esc
+
 
 
 # --------------------------------------------- loop protection + manners (Day 5)
@@ -410,12 +431,23 @@ def test_consent_gate_holds_without_recorded_consent(tmp_path):
 # ----------------------------------------------------- heartbeat + playbook KPI
 def test_watchdog_names_gap_incidents_never_percentages(tmp_path):
     from dispatcher.runs import heartbeat, Watchdog
-    import time as _t
     hub = make_hub(tmp_path)
-    heartbeat(hub); _t.sleep(0.01); heartbeat(hub); _t.sleep(0.06); heartbeat(hub)
-    obs = Watchdog(cadence_s=0.01).observe(hub.audit.read())
-    assert obs["computable"] and obs["beats"] == 3 and obs["gap_incidents"] == 1
+    heartbeat(hub); heartbeat(hub); heartbeat(hub)
+    beats = [e for e in hub.audit.read() if e["kind"] == "heartbeat"]
+    assert len(beats) == 3 and all(e["source"] == "hub" for e in beats)
+    # The gap logic gets exact timestamps. It used to get real sleeps
+    # (0.01 s, then 0.06 s, cadence 0.01 s), and on Windows the 15.6 ms
+    # timer tick plus a slow fsync pushed the FIRST gap past 2x cadence too
+    # (core CI run 38437120185: gap_incidents 2, not 1).
+    events = [{"kind": "heartbeat", "ts": t} for t in (100.0, 101.0, 103.0, 105.5)]
+    events.append({"kind": "other", "ts": 200.0})          # not a beat
+    obs = Watchdog(cadence_s=1.0).observe(events)
+    # gaps 1.0, 2.0, 2.5: only a gap MORE than twice the cadence is an incident
+    assert obs["computable"] and obs["beats"] == 4 and obs["gap_incidents"] == 1
+    assert obs["max_gap_s"] == 2.5 and obs["span_s"] == 5.5
     assert "uptime" not in obs                            # no invented %
+    assert Watchdog(cadence_s=1.0).observe(events[:1])["computable"] is False
+    assert Watchdog(cadence_s=1.0).observe(hub.audit.read())["beats"] == 3
 
 
 def test_playbook_completion_counted_from_log_only(tmp_path):

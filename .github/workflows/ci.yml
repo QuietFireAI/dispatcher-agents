@@ -2,6 +2,9 @@ name: ci
 on: [push, pull_request]
 jobs:
   suite:
+    # The repo alone, as a buyer first clones it: no listing identity next
+    # to it, so the 5 identity-pinned tests in tests/test_day3.py skip.
+    # They are run for real, with zero skips allowed, in with-identity below.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -11,4 +14,50 @@ jobs:
       # CI run installed bare pytest and died on collection because
       # analysis.py imports the pillar packages at module level.
       - run: pip install -e ".[pillars,crypto,dev]"
-      - run: python -m pytest -q
+      - run: python -m pytest -q -rs
+
+  with-identity:
+    # Added 2026-10-13 (repair plan 1.6). Until then every CI run skipped the
+    # 5 identity tests, so a green badge said nothing about them. Here the
+    # real listing-assistants identity is cloned and ANY skip fails the job.
+    # Python 3.10 is the floor pyproject.toml declares; Windows runs because
+    # the listing product ships a Windows desk on this core.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.10"}
+          - {os: ubuntu-latest, python: "3.12"}
+          - {os: ubuntu-latest, python: "3.13"}
+          - {os: windows-latest, python: "3.12"}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "${{ matrix.python }}"}
+      - run: pip install -e ".[pillars,crypto,dev]"
+      - name: clone the listing identity (same branch name if it exists, else main)
+        run: |
+          BR="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          if git clone --depth 1 -b "$BR" https://github.com/QuietFireAI/listing-assistants.git "$RUNNER_TEMP/listing-assistants" 2>/dev/null; then
+            echo "listing identity: branch $BR"
+          else
+            git clone --depth 1 https://github.com/QuietFireAI/listing-assistants.git "$RUNNER_TEMP/listing-assistants"
+            echo "listing identity: main (no branch named $BR)"
+          fi
+      - name: full suite, no skips allowed
+        env:
+          # Keep Windows on its real default text encoding (cp1252), so a
+          # missing encoding="utf-8" fails here and not on a buyer's machine.
+          PYTHONUTF8: "0"
+        run: |
+          export IDENTITY_DIR="$RUNNER_TEMP/listing-assistants"
+          python -m pytest -q -rs | tee out.txt
+          if grep -qi "skipped" out.txt; then
+            echo "::error::identity tests skipped - the identity was not found or not loaded"
+            exit 1
+          fi

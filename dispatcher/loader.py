@@ -46,7 +46,11 @@ def load_identity(root: str) -> Identity:
     try:
         routes_doc = json.load(open(routes_path, encoding="utf-8"))
         routes = routes_doc["routes"]
-        assert isinstance(routes, list) and routes
+        # an explicit check, not assert: python -O strips asserts, and an
+        # empty or non-list track would then load (found by the 2026-10-13
+        # mutation sweep)
+        if not (isinstance(routes, list) and routes):
+            raise ValueError("'routes' must be a non-empty list")
     except Exception as e:
         raise ValueError(f"routes.json present but invalid: {e!r}")
 

@@ -67,15 +67,19 @@ def send_sms_via_twilio(body: str, to_number: str | None = None,
     req.add_header("Authorization", f"Basic {auth}")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
     try:
+        # nosec B310: the URL is the fixed https://api.twilio.com address above,
+        # never caller-supplied, so no file:// or other scheme can reach urlopen.
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return {"status": "sent", "http_status": resp.status, "is_fallback": False}
     except urllib.error.HTTPError as e:
         return {"status": "failed", "http_status": e.code, "is_fallback": True,
-                "fallback_reason": f"Twilio API error {e.code}: failover to local audit ledger",
+                "fallback_reason": f"Twilio API error {e.code}: not delivered; the hub "
+                                   f"records human.notify_failed",
                 "body": e.read().decode(errors="replace")[:300]}
     except Exception as e:
         return {"status": "failed", "is_fallback": True,
-                "fallback_reason": f"Network exception: {e!r}", "error": repr(e)}
+                "fallback_reason": f"Network exception: {e!r}; not delivered, the hub "
+                                   f"records human.notify_failed", "error": repr(e)}
 
 
 def send_whatsapp_via_twilio(body: str, to_number: str | None = None,
@@ -100,6 +104,7 @@ def send_whatsapp_via_twilio(body: str, to_number: str | None = None,
     req.add_header("Authorization", f"Basic {auth}")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
     try:
+        # nosec B310: fixed https://api.twilio.com URL, never caller-supplied.
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return {"status": "sent", "http_status": resp.status, "channel": "whatsapp"}
     except urllib.error.HTTPError as e:

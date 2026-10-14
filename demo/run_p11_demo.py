@@ -40,9 +40,9 @@ def stub_model_a(prompt: str) -> dict:
 def stub_model_b(prompt: str) -> dict:
     return {"model": "stub-b", "response": "Fine.", "thinking": ""}
 
-IDENTITY = os.environ.get(
+IDENTITY = os.path.abspath(os.environ.get(
     "IDENTITY_DIR",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "listing-assistants"))
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "listing-assistants")))
 
 
 def signal(ctx, payload):

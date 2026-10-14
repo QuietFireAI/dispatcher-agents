@@ -8,24 +8,63 @@ are returned as {"computable": False, "missing": <event kinds>} - declared
 absent, never estimated. (Gate principle: absence of the expected artifact
 is reported, not papered over.)
 
-Computable from Day 1/2 event kinds
-(ack, envelope.persisted, reject, dead.letter, dedupe.hit, hold.clarification,
- integrity.violation, hub.reflection, spoke.trace, turn.start,
- openmind.drift, agentopenmind.tainted, agentopenmind.trace):
+What it computes (docstring corrected 2026-10-13: an earlier list said the
+last four were not computable; the code below computes all of them when
+their events are on the log):
  - ack integrity rate          (ack backed by prior persist of same envelope)
  - routing latency             (persist ts -> ack ts, same envelope)
  - queue health                (dead-letter rate, hold count, taint count)
- - dedupe hits, signature/integrity rejections, sequence-gap incidents
-
-NOT computable yet - no emitting instrumentation exists:
- - escalation transport time   (no human-notification event)
- - playbook completion / completion-proof coverage (no playbook events)
- - heartbeat uptime            (external watchdog does not exist)
- - loop suspensions            (no suspension event kind)
+ - dedupe hits, rejections, sequence-gap incidents, loop suspensions
+ - escalation transport time   (escalation.raised -> human.notified); since
+                               2026-10-13 a failed notification is
+                               human.notify_failed and never counts as a
+                               transport, and a notifier that reported nothing
+                               is counted apart as "not_reported"
+ - playbook completion         (playbook.started / playbook.completed)
+ - heartbeat observations      (needs at least two heartbeat events; gap
+                               incidents need the Watchdog's cadence)
 """
 from __future__ import annotations
 
 from collections import defaultdict
+
+
+NOTIFY_OUTCOMES = ("human.notified", "human.notify_failed")
+
+
+def pair_escalations(events: list[dict]) -> list[tuple[dict, dict | None]]:
+    """Each escalation.raised with the notification outcome written for it,
+    in log order. Since the second 2026-10-13 review every outcome carries
+    "raised_entry": the entry_hash of the escalation.raised it answers (or
+    None), and pairing is exact. Logs written before that are paired by
+    order: the first outcome on the escalation's queue after it and before
+    the next escalation on that queue. An outcome is never shared: one
+    escalation's delivery cannot stand in for another's failure (first
+    review: matching by queue and time alone let a later page cover an
+    earlier failed one; second review: two processes raising on one queue
+    could still interleave)."""
+    pairs: list[list] = []
+    waiting: dict = {}
+    by_entry: dict = {}
+    for e in events:
+        k = e.get("kind")
+        if k == "escalation.raised":
+            if e.get("entry_hash"):
+                by_entry[e["entry_hash"]] = len(pairs)
+            waiting[e.get("queue")] = len(pairs)
+            pairs.append([e, None])
+        elif k in NOTIFY_OUTCOMES and "raised_entry" in e:
+            # written since the second review: the outcome names its
+            # escalation's entry_hash, or None when it answers no escalation
+            # (a queue landing, Hub.notify). Exact; log order does not matter.
+            i = by_entry.get(e["raised_entry"]) if e["raised_entry"] else None
+            if i is not None and pairs[i][1] is None:
+                pairs[i][1] = e
+                if waiting.get(e.get("queue")) == i:
+                    waiting.pop(e.get("queue"))
+        elif k in NOTIFY_OUTCOMES and e.get("queue") in waiting:
+            pairs[waiting.pop(e.get("queue"))][1] = e     # older logs: queue order
+    return [(r, o) for r, o in pairs]
 
 
 def compute_kpis(events: list[dict]) -> dict:
@@ -77,21 +116,25 @@ def compute_kpis(events: list[dict]) -> dict:
         "siding_resumes": len(by_kind["siding.resume"]),
     }
 
-    # escalation transport: raised -> human.notified, matched per queue+ts order
+    # escalation transport: each escalation paired with its own outcome
+    # (pair_escalations). Only human.notified is a transport;
+    # human.notify_failed is counted as failed, and a notified entry whose
+    # notifier reported nothing ("transport": "not reported") is counted
+    # apart from confirmed ones.
     raised = by_kind["escalation.raised"]
-    notified = by_kind["human.notified"]
-    if raised and notified:
-        n_by_q = defaultdict(list)
-        for n in notified:
-            n_by_q[n.get("queue")].append(n["ts"])
-        transports = []
-        for r in raised:
-            cands = [t for t in n_by_q.get(r.get("queue"), []) if t >= r["ts"]]
-            if cands:
-                transports.append(min(cands) - r["ts"])
+    pairs = pair_escalations(events)
+    if raised and any(o for _, o in pairs):
+        notified = [(r, o) for r, o in pairs if o and o["kind"] == "human.notified"]
+        transports = [o["ts"] - r["ts"] for r, o in notified]
         escalation_transport = {"computable": True, "n": len(transports),
                                 "unnotified": len(raised) - len(transports),
-                                "max_s": max(transports) if transports else None}
+                                "max_s": max(transports) if transports else None,
+                                "confirmed": sum(1 for _, o in notified
+                                                 if o.get("transport") != "not reported"),
+                                "not_reported": sum(1 for _, o in notified
+                                                    if o.get("transport") == "not reported"),
+                                "notify_failed": sum(1 for _, o in pairs
+                                                     if o and o["kind"] == "human.notify_failed")}
     else:
         escalation_transport = {"computable": False,
                                 "missing": ["escalation.raised/human.notified pairs"]}
