@@ -34,9 +34,9 @@ that pillar regressed; stop, report the raw failure. Do not proceed to
 integration on a broken pillar - the set cannot be validated on a bad part.
 
 Then the dispatcher's suite from its clone: `python3 -m pytest tests/ -q`
-EXPECTED: 362 passed, 6 skipped. (The 6 identity-dependent tests activate
+EXPECTED: 363 passed, 6 skipped. (The 6 identity-dependent tests activate
 when IDENTITY_DIR points at a listing-assistants clone, or when one sits at
-the conventional sibling path `../listing-assistants` - then 368 passed, as
+the conventional sibling path `../listing-assistants` - then 369 passed, as
 of 2026-10-14. CI runs both: the clone alone, and with the listing identity
 on Linux 3.10/3.12/3.13 and Windows, where any skip fails the job.)
 

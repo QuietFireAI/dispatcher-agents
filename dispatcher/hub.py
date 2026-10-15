@@ -176,6 +176,13 @@ class Hub:
             "escalation.confidence_underflow": [],
             "dead.letter": []}
         self._lock = threading.RLock()
+        # Fail closed (Agent 00 tuples "audit log unwritable or queue
+        # overflow" and "audit write fails", 2026-10-14): any failure that
+        # escapes send() - an audit write that cannot be made, a queue that
+        # cannot take an item - halts the hub. Every later envelope is
+        # refused until the process restarts on a log it can write. None
+        # while running.
+        self.halted: Optional[dict] = None
         # pillar seams
         self.reflection_artifacts: list[dict] = []   # open-mind input
         self.spoke_traces: list[dict] = []           # agent-open-mind input
@@ -497,200 +504,240 @@ class Hub:
                     "intent": intent, "prior_count": had_count}
 
     def send(self, env: Envelope) -> dict:
+        """The one door. Wraps _send: a failure escaping it halts the hub
+        (fail closed, loudly). Until 2026-10-14 a failed audit write stopped
+        that one envelope and traffic went on; the tuple says run on a log or
+        do not run."""
         with self._lock:
-            # 0. idempotency FIRST - a retry of an acked envelope (same
-            # envelope_id, hub-stamped sequence riding along) is the normal
-            # ack-loss case and must dedupe before any other check can reject it
-            if env.envelope_id in self.seen_ids:
-                self.audit.append("dedupe.hit", {"envelope_id": env.envelope_id})
-                return {"status": "duplicate", "processed": False,
-                        "envelope_id": env.envelope_id}
-            # 0.5 loop protection - per (context, intent) threshold, suspend +
-            # clarification (core protocol mechanics). Counts real attempts only:
-            # rides after dedupe so ack-loss retries never inflate the count.
-            key = (env.client_context_id, env.intent)
-            self.loop_counts[key] = self.loop_counts.get(key, 0) + 1
-            if self.loop_counts[key] > self.loop_threshold:
-                self.queue_and_notify("clarification.request", env.to_record())
-                self.audit.append("loop.suspended",
-                                  {"client_context_id": env.client_context_id,
-                                   "intent": env.intent,
-                                   "count": self.loop_counts[key],
-                                   "threshold": self.loop_threshold,
-                                   "envelope_id": env.envelope_id})
-                return {"status": "suspended", "queue": "clarification.request",
-                        "reason": f"loop threshold {self.loop_threshold} exceeded "
-                                  f"for {key}", "envelope_id": env.envelope_id}
-            # 1. schema
-            errs = env.validate_schema()
-            if errs:
-                return self._reject(env, f"schema: {errs}")
-            # 2. authority signature - the signature, not the sender field, is trust
-            if is_authority(env.intent, self.routes.signed_intents):
-                if not self.verify_sig(env):
+            if self.halted is not None:
+                return {"status": "halted", "processed": False,
+                        "envelope_id": env.envelope_id,
+                        "reason": self.halted["reason"]}
+            try:
+                return self._send(env)
+            except Exception as e:
+                from .core import AuditLogBusy, AuditLogDamaged
+                if self.halted is None:
+                    self.halted = {"reason": f"{type(e).__name__}: {e}",
+                                   "envelope_id": env.envelope_id,
+                                   "intent": env.intent}
+                    self._halt_alarm()
+                if isinstance(e, (AuditLogBusy, AuditLogDamaged)):
+                    raise          # the caller names the damaged record and stops
+                return {"status": "halted", "processed": False,
+                        "envelope_id": env.envelope_id,
+                        "reason": self.halted["reason"]}
+
+    def _halt_alarm(self) -> None:
+        """Loudly, and out of band: the log may be the thing that failed, so
+        the human notifier is called directly and nothing is written first.
+        A notifier failure here is swallowed - there is nowhere left to
+        record it, and the halt stands either way."""
+        record = {"HALTED": True, **self.halted,
+                  "action": "the hub refuses every envelope until restarted on a "
+                            "log it can write; nothing was processed after this"}
+        if self.human_notifier is not None:
+            try:
+                self.human_notifier("escalation.system_halt", record)
+            except Exception:
+                pass
+        self.queues.setdefault("escalation.system_halt", []).append(record)
+
+    def _send(self, env: Envelope) -> dict:
+        """send() without the halt guard; called under the hub lock."""
+        # 0. idempotency FIRST - a retry of an acked envelope (same
+        # envelope_id, hub-stamped sequence riding along) is the normal
+        # ack-loss case and must dedupe before any other check can reject it
+        if env.envelope_id in self.seen_ids:
+            self.audit.append("dedupe.hit", {"envelope_id": env.envelope_id})
+            return {"status": "duplicate", "processed": False,
+                    "envelope_id": env.envelope_id}
+        # 0.5 loop protection - per (context, intent) threshold, suspend +
+        # clarification (core protocol mechanics). Counts real attempts only:
+        # rides after dedupe so ack-loss retries never inflate the count.
+        key = (env.client_context_id, env.intent)
+        self.loop_counts[key] = self.loop_counts.get(key, 0) + 1
+        if self.loop_counts[key] > self.loop_threshold:
+            self.queue_and_notify("clarification.request", env.to_record())
+            self.audit.append("loop.suspended",
+                              {"client_context_id": env.client_context_id,
+                               "intent": env.intent,
+                               "count": self.loop_counts[key],
+                               "threshold": self.loop_threshold,
+                               "envelope_id": env.envelope_id})
+            return {"status": "suspended", "queue": "clarification.request",
+                    "reason": f"loop threshold {self.loop_threshold} exceeded "
+                              f"for {key}", "envelope_id": env.envelope_id}
+        # 1. schema
+        errs = env.validate_schema()
+        if errs:
+            return self._reject(env, f"schema: {errs}")
+        # 2. authority signature - the signature, not the sender field, is trust
+        if is_authority(env.intent, self.routes.signed_intents):
+            if not self.verify_sig(env):
+                self.queue_and_notify("integrity.violation", env.to_record())
+                self.audit.append("integrity.violation",
+                                  {"envelope_id": env.envelope_id,
+                                   "reason": "authority intent without verified signature"})
+                return self._reject(env, "unverified signature on authority intent")
+            # 2b. signer identity - the crypto proves the envelope is sealed;
+            # the registry proves the sealed stamp names an authorized human
+            # login (IdP+MFA doctrine). Registry verdicts ride the hash chain.
+            if self.signer_registry is not None:
+                v = self.signer_registry.check(env)
+                if not v.ok:
                     self.queue_and_notify("integrity.violation", env.to_record())
                     self.audit.append("integrity.violation",
                                       {"envelope_id": env.envelope_id,
-                                       "reason": "authority intent without verified signature"})
-                    return self._reject(env, "unverified signature on authority intent")
-                # 2b. signer identity - the crypto proves the envelope is sealed;
-                # the registry proves the sealed stamp names an authorized human
-                # login (IdP+MFA doctrine). Registry verdicts ride the hash chain.
-                if self.signer_registry is not None:
-                    v = self.signer_registry.check(env)
-                    if not v.ok:
-                        self.queue_and_notify("integrity.violation", env.to_record())
-                        self.audit.append("integrity.violation",
-                                          {"envelope_id": env.envelope_id,
-                                           "reason": f"signer registry: {v.reason}"})
-                        return self._reject(env, f"signer registry: {v.reason}")
-                    stamp = env.provenance["signer"]
-                    self.audit.append("signer.verified",
-                                      {"envelope_id": env.envelope_id,
-                                       "intent": env.intent,
-                                       "signer_login": stamp["signer_login"],
-                                       "idp_session_ref": stamp["idp_session_ref"]})
-                else:
-                    self.audit.append("signer.unarmed",
-                                      {"envelope_id": env.envelope_id,
-                                       "reason": "no signer registry armed - "
-                                                 "WHO-signed binding off, declared "
-                                                 "not silent (crypto check only)"})
-            # 3. closed track
-            if not self.routes.tuple_legal(env.from_agent, env.intent, env.to_agent):
-                known_intent = any(True for _ in self.routes.matches(env.intent))
-                if known_intent:
-                    return self._reject(
-                        env, f"tuple illegal: {env.from_agent} -> {env.intent} -> {env.to_agent}")
-                # well-formed but unknown route: restricted-speed HOLD, never drop
-                self.queue_and_notify("clarification.request", env.to_record())
-                self.audit.append("hold.clarification", env.to_record())
-                self._reflect(env.envelope_id,
-                              f"intent {env.intent!r} not on any track; doctrine says hold live",
-                              "held in clarification.request")
-                return {"status": "held", "queue": "clarification.request",
-                        "envelope_id": env.envelope_id}
-            # 3.5 ABSOLUTE SIGNAL, disclosure half - the outbound gate.
-            # A message legal on the closed track can still leak a position. Any
-            # route leaving to `external` carries an audience class; counterparty
-            # and public destinations hold for HITL BEFORE persist/delivery. The
-            # principal (the party the identity serves) and internal/human routes
-            # pass untouched. Fail-closed: an external route with no class resolves
-            # to counterparty upstream in Routes, so absence of a label holds.
-            if env.to_agent == "external":
-                audience = self.routes.audience_for(env.intent) or AUDIENCE_DEFAULT
-                # a human key already cleared THIS envelope id: the re-send passes
-                # the gate once. It cannot be reused - the id is consumed here and
-                # the original's idempotency (seen_ids) blocks any further replay.
-                if env.envelope_id in self._absolute_released:
-                    self._absolute_released.discard(env.envelope_id)
-                    self.audit.append("absolute_signal.released", {
-                        "envelope_id": env.envelope_id, "intent": env.intent,
-                        "audience": audience})
-                elif audience in AUDIENCE_GATED:
-                    payload = rebuttal(env.intent, audience, env.client_context_id)
-                    if not self.routes.audience_is_verified(env.intent):
-                        payload["audience_provisional"] = True
-                    # keep the ORIGINAL envelope, keyed by id, so a later signed
-                    # release names exactly this message and nothing else. A queue
-                    # scan could match the wrong same-intent hold; an id lookup
-                    # cannot.
-                    self._absolute_holds[env.envelope_id] = env
-                    self.queue_and_notify("clarification.request", {
-                        **env.to_record(), "absolute_signal": payload})
-                    self.audit.append("absolute_signal.hold", {
-                        "envelope_id": env.envelope_id,
-                        "intent": env.intent,
-                        "audience": audience,
-                        "audience_verified":
-                            self.routes.audience_is_verified(env.intent),
-                        "signal_sha256": payload["signal_sha256"]})
-                    self._reflect(
-                        env.envelope_id,
-                        f"outbound to {audience!r} carries position risk; "
-                        f"absolute signal holds for human authorization",
-                        "held: absolute_signal")
-                    return {"status": "held", "queue": "clarification.request",
-                            "reason": "absolute_signal", "audience": audience,
-                            "envelope_id": env.envelope_id}
-            # 4. PERSIST - before delivery, always. The id is marked seen and
-            # the sequence committed only after the audit write succeeds
-            # (fixed 2026-10-12): they used to be set first, so a failed
-            # write left the id "seen" and a retry of the same envelope was
-            # answered "duplicate" and never delivered.
-            seq = self.seq.get(env.client_context_id, 0) + 1
-            env.sequence = seq
-            try:
-                self.audit.append("envelope.persisted", env.to_record())
-            except Exception:
-                env.sequence = None   # not persisted: no sequence, not seen
-                raise
-            self.seq[env.client_context_id] = seq
-            self.seen_ids.add(env.envelope_id)
-            # 5. pre-response-selfcheck exit gate (auto when armed) - a FAIL
-            # verdict holds the envelope live in clarification: persisted,
-            # never delivered, never acked, flagged line on the log.
-            if self.selfcheck_model is not None:
-                from .pillars import exit_gate
-                g = exit_gate(self, env, model=self.selfcheck_model)
-                if not g["passed"]:
-                    return {"status": "held", "queue": "clarification.request",
-                            "envelope_id": env.envelope_id,
-                            "reason": f"selfcheck FAIL: {g['line']}"}
-            # 6. deliver
-            if env.to_agent == "queue":
-                # "queue" is a virtual destination (clarification.request,
-                # integrity.violation), not a real registered agent - real bug
-                # found mid-session: every clarification.request sent via the
-                # normal send() path was silently dead-lettering here, because
-                # nothing registers a handler for the literal string "queue".
-                # The dedicated tracking queue was never actually populated by
-                # any agent's real traffic - tests only ever checked
-                # envelope.persisted (which happens before this step), so it
-                # went undetected. Fixed: route to the queue by intent name,
-                # and notify immediately - unexpected/unrecognized values
-                # deserve the same active-push urgency as an escalation, not a
-                # passive list nobody is watching.
-                self.queue_and_notify(env.intent, env.to_record())
-                self.audit.append("hold.queued", {"envelope_id": env.envelope_id,
-                                                  "intent": env.intent})
-                return {"status": "held", "queue": env.intent,
-                        "envelope_id": env.envelope_id}
-            handler = self.handlers.get(env.to_agent)
-            if handler is None:
-                self.queues["dead.letter"].append(env.to_record())
-                self.audit.append("dead.letter", {"envelope_id": env.envelope_id,
-                                                  "reason": f"no handler for {env.to_agent}"})
-                return {"status": "dead.letter", "envelope_id": env.envelope_id}
-            try:
-                handler(env)
-            except Exception as e:  # raw reason, never softened
-                # Distinct from "no handler yet" above - that's benign,
-                # expected during incremental build-out. This is a REGISTERED
-                # agent crashing on real input: a genuine defect. A crashed
-                # handler cannot self-report its own failure, so the hub - the
-                # only thing that ever sees this - has to raise the alarm
-                # immediately. Routed through the real escalate() method (not
-                # a manual queue append) so it actually reaches human_notifier
-                # like every other escalation does, rather than sitting in a
-                # passive list nobody is actively watching.
-                self.queues["dead.letter"].append(env.to_record())
-                self.audit.append("dead.letter", {"envelope_id": env.envelope_id,
-                                                  "reason": repr(e)})
-                self.escalate("escalation.system_error",
-                             {"envelope_id": env.envelope_id, "agent": env.to_agent,
-                              "intent": env.intent,
-                              "client_context_id": env.client_context_id,
-                              "reason": repr(e)})
-                return {"status": "dead.letter", "envelope_id": env.envelope_id,
-                        "reason": repr(e)}
-            # 7. ACK - only now is it a fact
-            self.audit.append("ack", {"envelope_id": env.envelope_id})
+                                       "reason": f"signer registry: {v.reason}"})
+                    return self._reject(env, f"signer registry: {v.reason}")
+                stamp = env.provenance["signer"]
+                self.audit.append("signer.verified",
+                                  {"envelope_id": env.envelope_id,
+                                   "intent": env.intent,
+                                   "signer_login": stamp["signer_login"],
+                                   "idp_session_ref": stamp["idp_session_ref"]})
+            else:
+                self.audit.append("signer.unarmed",
+                                  {"envelope_id": env.envelope_id,
+                                   "reason": "no signer registry armed - "
+                                             "WHO-signed binding off, declared "
+                                             "not silent (crypto check only)"})
+        # 3. closed track
+        if not self.routes.tuple_legal(env.from_agent, env.intent, env.to_agent):
+            known_intent = any(True for _ in self.routes.matches(env.intent))
+            if known_intent:
+                return self._reject(
+                    env, f"tuple illegal: {env.from_agent} -> {env.intent} -> {env.to_agent}")
+            # well-formed but unknown route: restricted-speed HOLD, never drop
+            self.queue_and_notify("clarification.request", env.to_record())
+            self.audit.append("hold.clarification", env.to_record())
             self._reflect(env.envelope_id,
-                          f"tuple legal, persisted seq={env.sequence}, delivered to {env.to_agent}",
-                          "ack issued")
-            return {"status": "ack", "envelope_id": env.envelope_id,
-                    "sequence": env.sequence}
+                          f"intent {env.intent!r} not on any track; doctrine says hold live",
+                          "held in clarification.request")
+            return {"status": "held", "queue": "clarification.request",
+                    "envelope_id": env.envelope_id}
+        # 3.5 ABSOLUTE SIGNAL, disclosure half - the outbound gate.
+        # A message legal on the closed track can still leak a position. Any
+        # route leaving to `external` carries an audience class; counterparty
+        # and public destinations hold for HITL BEFORE persist/delivery. The
+        # principal (the party the identity serves) and internal/human routes
+        # pass untouched. Fail-closed: an external route with no class resolves
+        # to counterparty upstream in Routes, so absence of a label holds.
+        if env.to_agent == "external":
+            audience = self.routes.audience_for(env.intent) or AUDIENCE_DEFAULT
+            # a human key already cleared THIS envelope id: the re-send passes
+            # the gate once. It cannot be reused - the id is consumed here and
+            # the original's idempotency (seen_ids) blocks any further replay.
+            if env.envelope_id in self._absolute_released:
+                self._absolute_released.discard(env.envelope_id)
+                self.audit.append("absolute_signal.released", {
+                    "envelope_id": env.envelope_id, "intent": env.intent,
+                    "audience": audience})
+            elif audience in AUDIENCE_GATED:
+                payload = rebuttal(env.intent, audience, env.client_context_id)
+                if not self.routes.audience_is_verified(env.intent):
+                    payload["audience_provisional"] = True
+                # keep the ORIGINAL envelope, keyed by id, so a later signed
+                # release names exactly this message and nothing else. A queue
+                # scan could match the wrong same-intent hold; an id lookup
+                # cannot.
+                self._absolute_holds[env.envelope_id] = env
+                self.queue_and_notify("clarification.request", {
+                    **env.to_record(), "absolute_signal": payload})
+                self.audit.append("absolute_signal.hold", {
+                    "envelope_id": env.envelope_id,
+                    "intent": env.intent,
+                    "audience": audience,
+                    "audience_verified":
+                        self.routes.audience_is_verified(env.intent),
+                    "signal_sha256": payload["signal_sha256"]})
+                self._reflect(
+                    env.envelope_id,
+                    f"outbound to {audience!r} carries position risk; "
+                    f"absolute signal holds for human authorization",
+                    "held: absolute_signal")
+                return {"status": "held", "queue": "clarification.request",
+                        "reason": "absolute_signal", "audience": audience,
+                        "envelope_id": env.envelope_id}
+        # 4. PERSIST - before delivery, always. The id is marked seen and
+        # the sequence committed only after the audit write succeeds
+        # (fixed 2026-10-12): they used to be set first, so a failed
+        # write left the id "seen" and a retry of the same envelope was
+        # answered "duplicate" and never delivered.
+        seq = self.seq.get(env.client_context_id, 0) + 1
+        env.sequence = seq
+        try:
+            self.audit.append("envelope.persisted", env.to_record())
+        except Exception:
+            env.sequence = None   # not persisted: no sequence, not seen
+            raise
+        self.seq[env.client_context_id] = seq
+        self.seen_ids.add(env.envelope_id)
+        # 5. pre-response-selfcheck exit gate (auto when armed) - a FAIL
+        # verdict holds the envelope live in clarification: persisted,
+        # never delivered, never acked, flagged line on the log.
+        if self.selfcheck_model is not None:
+            from .pillars import exit_gate
+            g = exit_gate(self, env, model=self.selfcheck_model)
+            if not g["passed"]:
+                return {"status": "held", "queue": "clarification.request",
+                        "envelope_id": env.envelope_id,
+                        "reason": f"selfcheck FAIL: {g['line']}"}
+        # 6. deliver
+        if env.to_agent == "queue":
+            # "queue" is a virtual destination (clarification.request,
+            # integrity.violation), not a real registered agent - real bug
+            # found mid-session: every clarification.request sent via the
+            # normal send() path was silently dead-lettering here, because
+            # nothing registers a handler for the literal string "queue".
+            # The dedicated tracking queue was never actually populated by
+            # any agent's real traffic - tests only ever checked
+            # envelope.persisted (which happens before this step), so it
+            # went undetected. Fixed: route to the queue by intent name,
+            # and notify immediately - unexpected/unrecognized values
+            # deserve the same active-push urgency as an escalation, not a
+            # passive list nobody is watching.
+            self.queue_and_notify(env.intent, env.to_record())
+            self.audit.append("hold.queued", {"envelope_id": env.envelope_id,
+                                              "intent": env.intent})
+            return {"status": "held", "queue": env.intent,
+                    "envelope_id": env.envelope_id}
+        handler = self.handlers.get(env.to_agent)
+        if handler is None:
+            self.queues["dead.letter"].append(env.to_record())
+            self.audit.append("dead.letter", {"envelope_id": env.envelope_id,
+                                              "reason": f"no handler for {env.to_agent}"})
+            return {"status": "dead.letter", "envelope_id": env.envelope_id}
+        try:
+            handler(env)
+        except Exception as e:  # raw reason, never softened
+            # Distinct from "no handler yet" above - that's benign,
+            # expected during incremental build-out. This is a REGISTERED
+            # agent crashing on real input: a genuine defect. A crashed
+            # handler cannot self-report its own failure, so the hub - the
+            # only thing that ever sees this - has to raise the alarm
+            # immediately. Routed through the real escalate() method (not
+            # a manual queue append) so it actually reaches human_notifier
+            # like every other escalation does, rather than sitting in a
+            # passive list nobody is actively watching.
+            self.queues["dead.letter"].append(env.to_record())
+            self.audit.append("dead.letter", {"envelope_id": env.envelope_id,
+                                              "reason": repr(e)})
+            self.escalate("escalation.system_error",
+                         {"envelope_id": env.envelope_id, "agent": env.to_agent,
+                          "intent": env.intent,
+                          "client_context_id": env.client_context_id,
+                          "reason": repr(e)})
+            return {"status": "dead.letter", "envelope_id": env.envelope_id,
+                    "reason": repr(e)}
+        # 7. ACK - only now is it a fact
+        self.audit.append("ack", {"envelope_id": env.envelope_id})
+        self._reflect(env.envelope_id,
+                      f"tuple legal, persisted seq={env.sequence}, delivered to {env.to_agent}",
+                      "ack issued")
+        return {"status": "ack", "envelope_id": env.envelope_id,
+                "sequence": env.sequence}
 
     def _reject(self, env: Envelope, reason: str) -> dict:
         self.audit.append("reject", {"envelope_id": env.envelope_id,
